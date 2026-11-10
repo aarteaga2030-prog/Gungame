@@ -133,13 +133,18 @@ export function renderBriefing(level, preview) {
     ['#343b48', 'wall'], ['#7fc4ff', 'window'], ['#e3a53a', 'door'], ['#d9622b', 'breach wall'], ['#4b525c', 'iron barricade'],
     ['#9aa3ae', 'low wall'], ['#b39a6a', 'sandbags'], ['#4a4f57', 'wire'], ['rgba(255,130,0,.4)', 'mortar TRP'], ['#ff2d2d', 'defender / sector'], ['#1f6fff', 'you'],
   ].map(([c, n]) => `<span><i style="background:${c}"></i>${n}</span>`).join('');
+  const common = [
+    ['WASD', 'move the soldier you control (Shift = slow)'], ['Mouse', 'aim'], ['Click', 'fire one round'], ['R', 'reload'],
+    ['1–4 / Tab', 'take control of another squad member — the others hold their position and cover their sector'],
+    ['G', 'standing order: keep suppressing the cursor point after you switch away (SUPPRESS)'], ['Q', 'throw smoke at the cursor (OBSCURE)'],
+  ];
   const ctl = level.mode === 'breach' ? [
-    ['WASD', 'move (Shift = slow)'], ['Mouse / LMB', 'aim / fire'], ['B', 'semi ⇄ auto'], ['R', 'reload'],
-    ['1', 'SAW: support-by-fire on cursor (SUPPRESS)'], ['Q / 2', 'throw smoke at cursor (OBSCURE)'], ['3', 'SEC: hold & secure flank toward cursor (SECURE)'],
-    ['E', `reduce: charge / cut wire / disarm (${RULES.reduceTime}s) (REDUCE)`], ['F', 'open door quietly (no stun)'], ['4', 'regroup squad'], ['V', 'toggle sight fans'], ['Esc', 'pause'],
+    ...common,
+    ['', 'SECURE = a teammate near the breach, left holding a sector that faces away from it'],
+    ['E', `reduce: charge / cut wire / disarm (${RULES.reduceTime}s) (REDUCE)`], ['F', 'open a door quietly (no stun)'], ['V', 'toggle sight fans'], ['Esc', 'pause'],
   ] : [
-    ['Click', 'place squad + sectors, then claymores'], ['Backspace', 'undo last placement'], ['Enter', 'begin defense'],
-    ['WASD / LMB', 'move / fire'], ['Q', 'smoke'], ['B / R', 'fire mode / reload'], ['V', 'toggle sight fans'], ['Esc', 'pause'],
+    ['Click', 'prep: place squad + sectors, then claymores'], ['Backspace', 'undo last placement'], ['Enter', 'begin defense'],
+    ...common, ['V', 'toggle sight fans'], ['Esc', 'pause'],
   ];
   $('briefControls').innerHTML = ctl.map(([k, d]) => `<kbd>${k}</kbd><span>${d}</span>`).join('');
 }
@@ -182,7 +187,7 @@ export function updateHUD(g) {
     const ev = c && c.ev;
     const ch = c && c.channel;
     const lb = c && c.lastBreach;
-    const sawOn = g.units.some((u) => u.role === 'saw' && u.alive && u.mode === 'support' && u.sbfLos);
+    const sawOn = g.units.some((u) => u.alive && u.mode === 'support' && u.sbfLos);
     const chip = (k, name, cls, sub) => `<div class="chip ${cls}"><b>${k}</b>${name}${sub ? `<div style="font-size:10px">${sub}</div>` : ''}</div>`;
     let s, o, sc, r, a;
     if (ev) {
@@ -190,10 +195,9 @@ export function updateHUD(g) {
       o = ev.o ? ['ok', ev.over.length ? 'smoke up' : 'not needed'] : ['bad', 'no smoke'];
       sc = ev.sec ? ['ok', 'flank held'] : [g.P.sosraStrict ? 'bad' : '', g.P.sosraStrict ? 'required' : 'needed for PERFECT'];
     } else {
-      s = [sawOn ? 'act' : '', sawOn ? 'SAW firing' : ''];
+      s = [sawOn ? 'act' : '', sawOn ? 'support firing' : ''];
       o = [g.smokes.length ? 'act' : '', g.smokes.length ? `${g.smokes.length} cloud` : ''];
-      const sec = g.units.some((u) => u.role === 'sec' && u.alive && u.mode === 'secure');
-      sc = [sec ? 'act' : '', sec ? 'holding' : ''];
+      sc = ['', ''];
     }
     r = ch ? ['act', `${(ch.dur - ch.t).toFixed(1)}s`] : (c && c.target ? ['', 'in reach'] : ['', '']);
     if (lb && lb.blastT != null && lb.assaultDelay == null) {
@@ -211,19 +215,20 @@ export function updateHUD(g) {
       : `WAVE ${Math.min(g.waveI, w)}/${w} · ${g.reds.length} attackers · interlocks ${g.interlocks.length}`;
   }
   // squad
-  $('squad').innerHTML = g.units.filter((u) => u.team === 'blue').map((u) => {
-    const mode = u === g.player ? (u.channel ? 'REDUCING' : 'LEAD') : (u.mode === 'support' ? (u.sbfLos === false ? 'SBF — NO LOS' : 'SUPPORT-BY-FIRE') : u.mode.toUpperCase());
+  $('squad').innerHTML = g.units.filter((u) => u.team === 'blue').map((u, i) => {
+    const ctl = u === g.player;
+    const mode = ctl ? (u.channel ? 'REDUCING' : u.sbf ? 'YOU · SUPPRESS ON SWITCH' : 'YOU') : (u.mode === 'support' ? (u.sbfLos === false ? 'SUPPRESS — NO LOS' : 'SUPPRESSING') : 'HOLDING SECTOR');
     const st = u.alive ? (u.suppressed ? ' · SUPPRESSED' : '') : '';
-    return `<div class="sq ${u.alive ? '' : 'dead'}"><div><div>${u.label}</div><div class="hp"><i style="width:${u.hp}%"></i></div></div><div style="text-align:right;font-size:11px">${u.alive ? mode : 'KIA'}${st}</div></div>`;
+    return `<div class="sq ${u.alive ? '' : 'dead'} ${ctl && u.alive ? 'ctl' : ''}"><div><div><span class="key">${i + 1}</span>${u.label}</div><div class="hp"><i style="width:${u.hp}%"></i></div></div><div style="text-align:right;font-size:11px">${u.alive ? mode : 'KIA'}${st}</div></div>`;
   }).join('');
   // weapon
   const p = g.player;
   $('weapon').innerHTML = `<div class="ammo">${p.reloadUntil > 0 ? '<small>RELOADING</small>' : `${p.ammo}<small>/${p.mag}</small>`}</div>
-    <div class="row">${p.fireMode.toUpperCase()} · SMOKE ×${g.smokesLeft}${L.mode === 'breach' ? ` · CHARGES ×${g.chargesLeft}` : ''}</div>`;
+    <div class="row">${p.label} · SEMI · SMOKE ×${g.smokesLeft}${L.mode === 'breach' ? ` · CHARGES ×${g.chargesLeft}` : ''}</div>`;
   // hint
   $('hint').innerHTML = g.mode === 'breach'
-    ? '<kbd>1</kbd> suppress <kbd>Q</kbd> smoke <kbd>3</kbd> secure <kbd>E</kbd> reduce <kbd>F</kbd> open <kbd>4</kbd> regroup <kbd>V</kbd> fans'
-    : '<kbd>Q</kbd> smoke <kbd>B</kbd> mode <kbd>R</kbd> reload <kbd>V</kbd> fans';
+    ? '<kbd>1–4</kbd>/<kbd>Tab</kbd> switch soldier <kbd>G</kbd> suppress order <kbd>Q</kbd> smoke <kbd>E</kbd> reduce <kbd>F</kbd> open <kbd>V</kbd> fans'
+    : '<kbd>1–4</kbd>/<kbd>Tab</kbd> switch soldier <kbd>G</kbd> suppress order <kbd>Q</kbd> smoke <kbd>R</kbd> reload <kbd>V</kbd> fans';
   // reduce prompt
   let prompt = '';
   if (g.state === 'live' && g.mode === 'breach' && g.sosraLive && g.sosraLive.target && !p.channel) {
@@ -259,38 +264,42 @@ export function updateHUD(g) {
   $('vignette').classList.toggle('on', p.alive && p.suppressed);
 }
 
-// ─────────────────────────── reel + results ───────────────────────────
-export function updateReel(reel, result) {
-  const c = reel.caption();
-  $('reelProg').style.width = `${c.progress * 100}%`;
-  const key = `${c.i}:${c.n}`;
-  const el = $('reelCaption');
-  if (el.dataset.key !== key) {
-    el.dataset.key = key;
-    el.innerHTML = c.words.slice(0, c.n).map((w) => {
-      const bare = w.replace(/[^A-Za-z0-9%°]/g, '');
-      const hl = (bare.length > 1 && bare === bare.toUpperCase() && /[A-Z]/.test(bare)) || /\d/.test(bare);
-      return `<span class="w${hl ? ' hl' : ''}">${escapeHtml(w)}</span>`;
-    }).join(' ');
-  }
-  const v = $('reelVerdict');
-  const show = reel.reelT > 0.3;
-  v.textContent = show ? (result.win ? (result.perfect ? `✅ ${result.rating}` : `✅ ${result.rating}`) : `❌ ${failLabel(result)}`) : '';
-  v.className = result.win ? 'win' : 'loss';
-}
-
+// ─────────────────────────── results ───────────────────────────
 export function failLabel(r) {
   return {
-    sosra: 'SOSRA VIOLATION', bunch: 'CROSSFIRE WIPE', bunch_open: 'SQUAD WIPED', overrun: 'OBJECTIVE OVERRUN', player_killed: 'LEAD KILLED',
+    sosra: 'SOSRA VIOLATION', bunch: 'CROSSFIRE WIPE', bunch_open: 'SQUAD WIPED', overrun: 'OBJECTIVE OVERRUN', squad_killed: 'SQUAD KILLED',
   }[r.reason] || 'MISSION FAILED';
 }
 
-function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+/** One plain sentence on why the round ended. */
+function debrief(r) {
+  const i = r.info || {};
+  if (r.win) {
+    if (r.perfect) return r.mode === 'breach' ? 'Every reduction had full SOSRA and the assault went in inside the stun window.' : 'No casualties, objective never contested, sectors interlocked.';
+    const missed = r.breaches.filter((b) => !(b.s && b.o && b.sec)).length;
+    if (r.mode === 'breach' && missed) return `${missed} reduction${missed > 1 ? 's' : ''} started without full Suppress / Obscure / Secure.`;
+    return r.casualties ? `${r.casualties} casualt${r.casualties > 1 ? 'ies' : 'y'} taken.` : 'Clean, but not perfect — check your assault timing and SOSRA.';
+  }
+  switch (r.reason) {
+    case 'sosra': return `Reduction started without ${(i.missing || []).join(' / ')} in place.`;
+    case 'bunch': return `${i.count || 3} soldiers held in one chokepoint for 1.5 s under enemy observation.`;
+    case 'bunch_open': return 'Three soldiers clustered within 2 m of each other.';
+    case 'overrun': return 'An attacker reached the objective.';
+    default:
+      if (i.cause === 'mortar') return 'Last soldier lingered in a pre-registered mortar zone without smoke.';
+      if (i.cause === 'claymore') return 'Last soldier walked into a claymore\'s blast arc.';
+      if (i.funnel) return 'Last soldier was killed standing in a doorway (fatal funnel).';
+      if (i.wire) return 'Last soldier was killed while stuck in the wire.';
+      return 'The whole squad was killed.';
+  }
+}
+
 
 export function renderResults(r, unlock, hasNext) {
   const el = $('resRating');
   el.textContent = r.win ? r.rating : `${failLabel(r)}`;
   el.className = r.win ? 'win' : 'loss';
+  $('resDebrief').textContent = debrief(r);
   $('resGrade').textContent = r.win ? `GRADE ${r.grade} · ${fmt(r.time)} (par ${fmt(r.level.par)})` : `Level ${r.level.number} — ${r.level.name}`;
   const s = r.stats;
   const cells = [

@@ -1,7 +1,7 @@
-// Tiny synthesized sound kit (no audio files needed) + optional narrator TTS.
+// Tiny synthesized sound kit (no audio files needed).
 let ctx = null;
 let noiseBuf = null;
-export const audio = { enabled: true, voice: true, listener: { x: 0, z: 0 } };
+export const audio = { enabled: true, listener: { x: 0, z: 0 } };
 
 function ensure() {
   if (!audio.enabled) return null;
@@ -77,16 +77,3 @@ export const sfx = {
     o.start(t); o.stop(t + 0.13);
   },
 };
-
-export function speak(text) {
-  if (!audio.voice || !('speechSynthesis' in window)) return;
-  try {
-    const u = new SpeechSynthesisUtterance(text.replace(/[^\w\s.,!?'%°:-]/g, ''));
-    u.rate = 1.12;
-    u.pitch = 0.9;
-    window.speechSynthesis.speak(u);
-  } catch (e) { /* ignore */ }
-}
-export function stopSpeech() {
-  try { if ('speechSynthesis' in window) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
-}

@@ -6,7 +6,6 @@ import { World } from './world.js';
 import { FX, makeRing, SightFan } from './fx.js';
 import { makeSoldier } from './assets.js';
 import { sfx, audio } from './audio.js';
-import { Recorder } from './replay.js';
 
 const UNIT_R = 0.36;
 const DMG = 55;
@@ -42,7 +41,7 @@ export class Unit {
     this.mortarObs = 0;
     this.killedBy = null; this.deathCause = null; this.deathT = null;
     this.mg = role === 'mg';
-    this.label = { lead: 'YOU', saw: 'SAW', rfl: 'RFL', sec: 'SEC' }[role] || (this.mg ? 'MG' : 'RFL');
+    this.label = { lead: 'LEAD', saw: 'SAW', rfl: 'RFL', sec: 'SEC' }[role] || (this.mg ? 'MG' : 'RFL');
     // visuals
     this.vis = makeSoldier(team);
     this.ring = makeRing(team);
@@ -73,6 +72,9 @@ export class Unit {
     this.phase += dt * 9 * this.moveAmt;
     v.pose(this.phase, this.moveAmt);
     // suppressed / stunned feedback: ring flicker
+    const ctl = this.game.player === this;
+    this.ring.scale.setScalar(ctl ? 1.45 : 1);
+    this.ring.children[1].material.opacity = ctl ? 0.45 : 0.18;
     const r = this.ring.children[0].material;
     r.opacity = this.stunned ? 0.3 + 0.7 * Math.abs(Math.sin(this.game.t * 30)) : this.suppressed ? 0.5 : 0.95;
   }
@@ -97,10 +99,8 @@ export class Game {
     this.configLog = dir.log;
     this.world = new World(scene, this.map);
     this.fx = new FX(scene);
-    this.rec = new Recorder(this);
     this.map.onChange = (c, r, t, variant) => {
       this.world.buildTile(c, r, t, false, variant);
-      this.rec.event('tile', { c, r, t, variant });
     };
     this.t = 0;
     this.state = this.mode === 'defense' ? 'prep' : 'live';
@@ -122,24 +122,21 @@ export class Game {
     this.bunchTimers = new Map();
     this.bunchMax = 0;
     this.clusterT = 0;
-    this.trail = [];
     this.showFans = true;
     this.shake = 0;
     this.camTarget = new THREE.Vector3();
     this.camDist = level.mode === 'defense' ? 42 : 34;
     this.sosraLive = null;
     this.sosraT = 0;
-    this.recT = 0;
     this.messages = [];
     this.waveI = 0; this.waveTimer = 3; this.wavesDone = false; this.waveBanner = null;
     this.attackerSmokes = 0;
     this.objectiveContested = false;
     this.interlocks = [];
     this.prepStep = 0;
-    this.input = { keys: {}, mouse: { x: 0, z: 0 }, fire: false, firePressed: false };
+    this.input = { keys: {}, mouse: { x: 0, z: 0 }, firePressed: false };
     this.player = null;
     this.spawnUnits();
-    this.rec.start();
   }
 
   // ───────────────────────────── setup ─────────────────────────────
@@ -148,22 +145,21 @@ export class Game {
     const sp = m.spawn;
     this.player = this.addUnit('blue', 'lead', sp.x, sp.z);
     this.player.yaw = Math.PI;
-    this.player.mag = 30; this.player.ammo = 30; this.player.fireMode = 'auto'; this.player.reloadUntil = -1; this.player.heat = 0;
     const roles = ['saw', 'rfl', 'sec'];
     let prev = sp;
-    const trail = [{ x: sp.x, z: sp.z }];
+    const placed = [{ x: sp.x, z: sp.z }];
     roles.forEach((role, k) => {
       let p = m.squadSpawns[k];
       if (!p) {
         // stack behind the lead, away from the objective side (south if there is room, else sideways)
         const cands = [[0, 1], [1, 0], [-1, 0], [0, -1]].map(([dx, dz]) => ({ x: prev.x + dx * this.P.followSpacing, z: prev.z + dz * this.P.followSpacing }))
-          .filter((q) => q.x > 1 && q.z > 1 && q.x < m.w - 1 && q.z < m.h - 1 && m.canOccupy(q.x, q.z, UNIT_R + 0.1, 0) && !trail.some((t) => Math.hypot(t.x - q.x, t.z - q.z) < 1));
+          .filter((q) => q.x > 1 && q.z > 1 && q.x < m.w - 1 && q.z < m.h - 1 && m.canOccupy(q.x, q.z, UNIT_R + 0.1, 0) && !placed.some((t) => Math.hypot(t.x - q.x, t.z - q.z) < 1));
         p = cands[0] || this.findFree(prev.x, prev.z + this.P.followSpacing, 6);
       }
-      trail.unshift({ x: p.x, z: p.z });
+      placed.push({ x: p.x, z: p.z });
       prev = p;
       const u = this.addUnit('blue', role, p.x, p.z);
-      u.mode = this.mode === 'defense' ? 'hold' : 'follow';
+      u.mode = 'hold';
       u.yaw = Math.PI;
     });
     if (this.mode === 'breach') {
@@ -179,7 +175,8 @@ export class Game {
     }
     for (const c of this.map.claymores) this.addClaymore('red', c.x, c.z, yawTo(c, this.map.spawn));
     for (const u of this.units) { u.h = this.map.heightAt(u.x, u.z); u.syncVisual(0); }
-    this.trail = trail;
+    for (const u of this.units) if (u.team === 'blue') { u.mag = 30; u.ammo = 30; u.reloadUntil = -1; u.sectorYaw = u.yaw; }
+    this.player.mode = 'controlled';
   }
 
   findFree(x, z, maxR = 6) {
@@ -246,7 +243,6 @@ export class Game {
 
   msg(text, kind = 'info', dur = 2.5) {
     this.messages.push({ text, kind, until: this.t + dur });
-    this.rec.event('msg', { text, kind });
   }
 
   // ───────────────────────────── main update ─────────────────────────────
@@ -274,8 +270,6 @@ export class Game {
     this.checkEnd();
     this.sosraT -= dt;
     if (this.sosraT <= 0) { this.sosraT = 0.15; this.sosraLive = this.mode === 'breach' ? this.contextSOSRA() : null; }
-    this.recT -= dt;
-    if (this.recT <= 0) { this.recT = 0.1; this.rec.frame(); }
     this.messages = this.messages.filter((m) => m.until > this.t);
     this.syncVisuals(dt);
     this.fx.update(dt);
@@ -416,7 +410,6 @@ export class Game {
 
   afterShot(s, m, ex, ey, ez) {
     this.fx.tracer(m.x, m.y, m.z, ex, ey, ez, s.team);
-    this.rec.event('shot', { ax: m.x, ay: m.y, az: m.z, bx: ex, by: ey, bz: ez, team: s.team });
     sfx.shot(s.team, s.x, s.z, s.mg || s.role === 'saw');
     // near misses suppress the other side
     for (const u of this.units) {
@@ -448,7 +441,6 @@ export class Game {
     u.deathTile = this.map.tileAt(u.x, u.z);
     u.deathInFunnel = !!this.nearPortal(u, 2.2);
     u.deathInMortar = this.map.isMortar(u.x, u.z);
-    this.rec.event('death', { id: u.id, team: u.team, cause, x: u.x, z: u.z, src: src ? src.id : null, funnel: u.deathInFunnel });
     if (u.team === 'red') {
       this.stats.kills++;
       if (this.t - (u.stunStart || -99) < RULES.stunWindow + 0.3) this.stats.stunKills++;
@@ -459,7 +451,11 @@ export class Game {
       this.stats.casualties++;
       if (u.deathInFunnel) this.stats.funnelDeaths++;
       if (cause === 'mortar') this.stats.mortarKills++;
-      if (u !== this.player) this.msg(`${u.label} DOWN`, 'bad');
+      this.msg(`${u.label} DOWN`, 'bad');
+      if (u === this.player) {
+        const next = this.units.find((o) => o.team === 'blue' && o.alive);
+        if (next) { this.player = u; this.selectUnit(next); }
+      }
     }
   }
 
@@ -478,18 +474,11 @@ export class Game {
     if (!p.channel) this.moveUnit(p, mx, mz, k.ShiftLeft ? 2.0 : 4.3, dt);
     else p.moveAmt = 0;
     p.yaw = Math.atan2(this.input.mouse.x - p.x, this.input.mouse.z - p.z);
-    // breadcrumb trail for followers
-    const last = this.trail[this.trail.length - 1];
-    if (Math.hypot(last.x - p.x, last.z - p.z) > 0.25) { this.trail.push({ x: p.x, z: p.z }); if (this.trail.length > 600) this.trail.shift(); }
-    // weapon
-    p.heat = Math.max(0, p.heat - dt * 0.15);
+    // weapon: one click = one round
     if (p.reloadUntil > 0 && this.t >= p.reloadUntil) { p.ammo = p.mag; p.reloadUntil = -1; }
-    if (!p.channel && p.reloadUntil < 0) {
-      const want = p.fireMode === 'auto' ? this.input.fire : this.input.firePressed;
-      if (want && this.t >= p.nextShot) {
-        if (p.ammo <= 0) { this.reload(); }
-        else { this.playerShoot(); p.nextShot = this.t + (p.fireMode === 'auto' ? 0.095 : 0.14); }
-      }
+    if (!p.channel && p.reloadUntil < 0 && this.input.firePressed && this.t >= p.nextShot) {
+      if (p.ammo <= 0) this.reload();
+      else { this.playerShoot(); p.nextShot = this.t + 0.12; }
     }
     this.input.firePressed = false;
     // reduction channel
@@ -510,8 +499,7 @@ export class Game {
     const p = this.player;
     p.ammo--;
     this.stats.shots++;
-    const spread = (p.fireMode === 'semi' ? 0.01 : 0.025 + p.heat) * (p.suppressed ? 2.5 : 1) * (p.moveAmt > 0.3 ? 1.7 : 1);
-    if (p.fireMode === 'auto') p.heat = Math.min(0.06, p.heat + 0.008);
+    const spread = 0.012 * (p.suppressed ? 2.5 : 1) * (p.moveAmt > 0.3 ? 1.7 : 1);
     const a = p.yaw + gauss() * spread;
     const dx = Math.sin(a), dz = Math.cos(a);
     const m = this.muzzle(p);
@@ -577,7 +565,9 @@ export class Game {
     const unsup = over.filter((r) => !r.suppressed && sees(r, this.smokes));
     const smokeNear = this.smokes.some((s) => s.r > 1.5 && Math.hypot(s.x - pt.x, s.z - pt.z) < 12);
     const obscured = over.some((r) => !sees(r, this.smokes));
-    const sec = this.units.some((u) => u.alive && u.role === 'sec' && u.mode === 'secure');
+    // Secure: a teammate near the breach holding a sector that faces away from it (a flank).
+    const sec = this.units.some((u) => u.alive && u.team === 'blue' && u !== this.player && u.mode === 'hold' &&
+      Math.hypot(u.x - pt.x, u.z - pt.z) < 14 && Math.abs(angDiff(u.sectorYaw, yawTo(u, pt))) > Math.PI / 4);
     return {
       over, unsup,
       s: unsup.length === 0,
@@ -606,7 +596,6 @@ export class Game {
     const ev = this.evalSOSRA(pt, tg);
     const entry = { t: this.t, kind: tg.kind, c: tg.c, r: tg.r, x: tg.x, z: tg.z, tile: tg.t, s: ev.s, o: ev.o, sec: ev.sec, overwatch: ev.over.length, unsup: ev.unsup.length, blastT: null, assaultDelay: null };
     this.breaches.push(entry);
-    this.rec.event('reduce', { ...entry });
     const missing = [];
     if (!ev.s) missing.push('SUPPRESS');
     if (this.P.sosraStrict && !ev.o) missing.push('OBSCURE');
@@ -627,7 +616,6 @@ export class Game {
         this.burstVisual(shooter, victim, 4);
         this.kill(victim, shooter, 'overwatch');
         this.stats.overwatchCasualties++;
-        this.rec.event('key', { x: shooter.x, z: shooter.z, label: shooter.windowGuard ? 'UNSUPPRESSED WINDOW' : 'UNSUPPRESSED OVERWATCH' });
         this.msg(`UNSUPPRESSED ${shooter.windowGuard ? 'WINDOW' : 'OVERWATCH'} — ${victim.label} hit`, 'bad', 3.5);
         if (victim === p) return;
       }
@@ -641,7 +629,6 @@ export class Game {
     for (let i = 0; i < n; i++) {
       const m = this.muzzle(s);
       this.fx.tracer(m.x, m.y, m.z, tg.x + (Math.random() - 0.5) * 0.5, tg.h + 1.1, tg.z + (Math.random() - 0.5) * 0.5, s.team);
-      this.rec.event('shot', { ax: m.x, ay: m.y, az: m.z, bx: tg.x, by: tg.h + 1.1, bz: tg.z, team: s.team });
     }
     s.yaw = yawTo(s, tg);
     sfx.shot(s.team, s.x, s.z, true);
@@ -664,7 +651,6 @@ export class Game {
     } else if (ch.kind === 'disarm') {
       ch.clay.alive = false;
       this.scene.remove(ch.clay.mesh);
-      this.rec.event('clay', { id: ch.clay.id, alive: false });
       this.msg('Claymore disarmed', 'good');
     }
   }
@@ -684,7 +670,6 @@ export class Game {
   detonate(c) {
     this.map.set(c.c, c.r, T.RUBBLE, 'blown');
     this.fx.blast(c.x, c.z, 3.2);
-    this.rec.event('blast', { x: c.x, z: c.z, r: 3.2 });
     sfx.boom(c.x, c.z);
     this.shake = 1.2;
     for (const u of this.units) {
@@ -715,7 +700,6 @@ export class Game {
       if (b.blastT == null || b.assaultDelay != null) continue;
       if (Math.hypot(p.x - b.x, p.z - b.z) < 1.3) {
         b.assaultDelay = this.t - b.blastT;
-        this.rec.event('assault', { delay: b.assaultDelay });
         if (b.assaultDelay <= RULES.stunWindow) this.msg(`ASSAULT IN WINDOW (+${b.assaultDelay.toFixed(2)}s)`, 'good');
       }
     }
@@ -739,7 +723,6 @@ export class Game {
     this.scene.add(mesh);
     this.projectiles.push({ mesh, ax: from.x, az: from.z, bx: tx, bz: tz, t: 0, dur: 0.75 });
     if (team === 'blue') this.stats.smokesUsed++;
-    this.rec.event('smokeThrow', { ax: from.x, az: from.z, bx: tx, bz: tz });
   }
 
   updateProjectiles(dt) {
@@ -770,57 +753,46 @@ export class Game {
   }
 
   // ───────────────────────────── squad AI ─────────────────────────────
-  trailPoint(distBack) {
-    const tr = this.trail;
-    let acc = 0;
-    let prev = { x: this.player.x, z: this.player.z };
-    for (let i = tr.length - 1; i >= 0; i--) {
-      const q = tr[i];
-      const d = Math.hypot(q.x - prev.x, q.z - prev.z);
-      if (acc + d >= distBack) {
-        const k = (distBack - acc) / (d || 1);
-        return { x: prev.x + (q.x - prev.x) * k, z: prev.z + (q.z - prev.z) * k };
-      }
-      acc += d;
-      prev = q;
+  /** Hand control to another squad member. The one you leave keeps its standing order. */
+  selectUnit(u) {
+    if (!u || !u.alive || u.team !== 'blue' || u === this.player) return;
+    const old = this.player;
+    if (old && old.alive) {
+      old.channel = null;
+      old.sectorYaw = old.yaw;
+      old.mode = old.sbf ? 'support' : 'hold';
+      old.burstLeft = 0;
     }
-    return prev;
+    this.player = u;
+    u.mode = 'controlled';
+    u.target = null;
+    this.input.firePressed = false;
+    this.msg(`Controlling ${u.label}`, 'info', 1.1);
   }
 
-  setSBF(x, z) {
-    const s = this.unitByRole('saw');
-    if (!s || !s.alive) { this.msg('SAW gunner is down', 'bad'); return; }
-    s.mode = 'support';
-    s.sbf = { x, z };
-    s.yaw = yawTo(s, s.sbf);
-    s.burstLeft = 0;
-    const bk = Math.hypot(x - s.x, z - s.z) || 1;
-    if (!this.map.los(s.x, s.z, x - ((x - s.x) / bk) * 1.2, z - ((z - s.z) / bk) * 1.2)) this.msg('SAW: NO LINE OF SIGHT to that point', 'warn');
-    else this.msg('SAW: support-by-fire — suppressing', 'good', 1.5);
-    this.rec.event('order', { kind: 'sbf', x, z });
+  cycleUnit() {
+    const bl = this.units.filter((u) => u.team === 'blue');
+    const i = bl.indexOf(this.player);
+    for (let k = 1; k <= bl.length; k++) {
+      const u = bl[(i + k) % bl.length];
+      if (u.alive) { this.selectUnit(u); return; }
+    }
   }
 
-  setSecure(x, z) {
-    const s = this.unitByRole('sec');
-    if (!s || !s.alive) { this.msg('Security man is down', 'bad'); return; }
-    if (s.mode === 'secure') { s.mode = 'follow'; this.msg('SEC: rejoining the stack', 'info', 1.3); return; }
-    s.mode = 'secure';
-    s.sectorYaw = yawTo(s, { x, z });
-    s.yaw = s.sectorYaw;
-    this.msg('SEC: flank secured', 'good', 1.5);
-    this.rec.event('order', { kind: 'secure' });
-  }
-
-  regroup() {
-    for (const u of this.blues) if (u !== this.player && this.mode === 'breach') { u.mode = 'follow'; u.sbf = null; }
-    this.msg('REGROUP on me', 'info', 1.3);
+  /** Standing order for the soldier you control: keep suppressing the cursor point after you switch away. */
+  toggleSuppressOrder(x, z) {
+    const u = this.player;
+    if (u.sbf) { u.sbf = null; this.msg(`${u.label}: suppress order cleared — will hold sector`, 'info', 1.6); return; }
+    u.sbf = { x, z };
+    const bk = Math.hypot(x - u.x, z - u.z) || 1;
+    if (!this.map.los(u.x, u.z, x - ((x - u.x) / bk) * 1.2, z - ((z - u.z) / bk) * 1.2)) this.msg(`${u.label}: NO LINE OF SIGHT to that point`, 'warn');
+    else this.msg(`${u.label}: will suppress that point when you switch away`, 'good', 2);
   }
 
   updateSquad(u, dt) {
     // target acquisition
-    let fov = 240, react = 0.4;
-    if (u.mode === 'secure' || u.mode === 'hold') { fov = u.mode === 'secure' ? 140 : 110; react = 0.28; }
-    const lookYaw = u.mode === 'secure' || u.mode === 'hold' ? u.sectorYaw : u.yaw;
+    const fov = 120, react = 0.3;
+    const lookYaw = u.sectorYaw;
     let best = null, bd = Infinity;
     u.range = 26;
     for (const r of this.reds) {
@@ -839,9 +811,10 @@ export class Game {
       const los = this.map.los(u.x, u.z, lx, lz);
       u.sbfLos = los;
       if (los && this.t >= u.nextShot) {
-        if (u.burstLeft <= 0) u.burstLeft = 8;
+        const saw = u.role === 'saw';
+        if (u.burstLeft <= 0) u.burstLeft = saw ? 8 : 3;
         u.burstLeft--;
-        u.nextShot = this.t + (u.burstLeft > 0 ? 0.085 : 0.45);
+        u.nextShot = this.t + (u.burstLeft > 0 ? (saw ? 0.085 : 0.15) : (saw ? 0.45 : 0.6));
         const ex = u.sbf.x + (Math.random() - 0.5) * 2.4, ez = u.sbf.z + (Math.random() - 0.5) * 2.4;
         const m = this.muzzle(u);
         const L = this.map.rayDist(u.x, u.z, Math.sin(yawTo(u, { x: ex, z: ez })), Math.cos(yawTo(u, { x: ex, z: ez })), Math.hypot(ex - u.x, ez - u.z) + 1);
@@ -869,23 +842,8 @@ export class Game {
       }
     } else u.target = null;
 
-    if (u.mode === 'follow') {
-      const order = this.blues.filter((b) => b !== this.player && b.mode === 'follow');
-      const k = order.indexOf(u);
-      const tp = this.trailPoint((k + 1) * this.P.followSpacing);
-      const dx = tp.x - u.x, dz = tp.z - u.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 0.25) {
-        this.moveUnit(u, dx, dz, d > 3 ? 5.2 : 4.4, dt);
-        if (!best) u.yaw = rotateTo(u.yaw, Math.atan2(dx, dz), 8 * dt);
-      } else {
-        u.moveAmt = Math.max(0, u.moveAmt - dt * 6);
-        if (!best) u.yaw = rotateTo(u.yaw, this.player.yaw, 4 * dt);
-      }
-    } else {
-      u.moveAmt = Math.max(0, u.moveAmt - dt * 6);
-      if (!best) u.yaw = rotateTo(u.yaw, u.sectorYaw, 6 * dt);
-    }
+    u.moveAmt = Math.max(0, u.moveAmt - dt * 6);
+    if (!best) u.yaw = rotateTo(u.yaw, u.sectorYaw, 6 * dt);
   }
 
   // ───────────────────────────── defender AI (ATP 3-21.8) ─────────────────────────────
@@ -982,7 +940,6 @@ export class Game {
     u.shifts++;
     u.shiftReadyAt = this.t + 6;
     u.shiftFace = yawTo(best, threat);
-    this.rec.event('shift', { id: u.id });
     return true;
   }
 
@@ -1063,7 +1020,6 @@ export class Game {
         u.state = 'advance'; u.fov = 140; u.range = this.P.range; u.yaw = 0;
         u.vis.root.position.set(u.x, 0, u.z);
       }
-      this.rec.event('wave', { i: this.waveI });
       this.waveI++;
       this.waveTimer = 35;
       this.msg(`WAVE ${this.waveI}/${waves.length}`, 'warn', 2);
@@ -1086,10 +1042,8 @@ export class Game {
   claymoreBlast(c) {
     c.alive = false;
     this.scene.remove(c.mesh);
-    this.rec.event('clay', { id: c.id, alive: false });
     const fx = c.x + Math.sin(c.yaw) * 2, fz = c.z + Math.cos(c.yaw) * 2;
     this.fx.blast(fx, fz, 2.8, 0xffd27a);
-    this.rec.event('blast', { x: fx, z: fz, r: 2.8 });
     sfx.boom(c.x, c.z, 0.7);
     this.shake = 0.8;
     for (const u of this.units) {
@@ -1099,7 +1053,6 @@ export class Game {
       if ((inArc && d < 6) || d < 1.2) this.kill(u, null, 'claymore');
       else if (inArc && d < 9) this.damage(u, 60, null, 'claymore');
     }
-    if (c.team === 'red') this.rec.event('key', { x: c.x, z: c.z, label: 'CLAYMORE' });
   }
 
   updateMortars(dt) {
@@ -1113,7 +1066,6 @@ export class Game {
         const x = u.x + (Math.random() - 0.5) * 1.6, z = u.z + (Math.random() - 0.5) * 1.6;
         this.mortarRounds.push({ x, z, at: this.t + 1.6 });
         this.fx.warning(x, z, 3.5, 1.6);
-        this.rec.event('mortarWarn', { x, z });
         sfx.whistle();
         if (!this.mortarWarned) { this.mortarWarned = true; this.msg('INCOMING — pre-registered mortar zone!', 'bad', 2.5); }
       }
@@ -1123,8 +1075,6 @@ export class Game {
       if (this.t < m.at) continue;
       this.mortarRounds.splice(i, 1);
       this.fx.blast(m.x, m.z, 3.5, 0xff8844);
-      this.rec.event('blast', { x: m.x, z: m.z, r: 3.5 });
-      this.rec.event('key', { x: m.x, z: m.z, label: 'MORTAR IMPACT' });
       sfx.boom(m.x, m.z, 1.2);
       this.shake = 1.4;
       for (const u of this.units) {
@@ -1173,17 +1123,14 @@ export class Game {
 
   fatal(kind, info) {
     if (this.state !== 'live') return;
-    this.rec.event('fatal', { kind, ...info });
-    this.rec.event('key', { x: (info && info.x) || this.player.x, z: (info && info.z) || this.player.z, label: kind.toUpperCase() });
     this.endRound(false, kind, info);
   }
 
   checkEnd() {
     if (this.state !== 'live') return;
-    if (!this.player.alive) {
+    if (!this.blues.length) {
       const p = this.player;
-      this.rec.event('key', { x: p.x, z: p.z, label: 'LEAD DOWN' });
-      return this.endRound(false, 'player_killed', { cause: p.deathCause, funnel: p.deathInFunnel, mortar: p.deathInMortar, wire: p.deathTile === T.WIRE, by: this.units.find((u) => u.id === p.killedBy) });
+      return this.endRound(false, 'squad_killed', { cause: p.deathCause, funnel: p.deathInFunnel, mortar: p.deathInMortar, wire: p.deathTile === T.WIRE, by: this.units.find((u) => u.id === p.killedBy) });
     }
     if (this.mode === 'breach' && this.reds.length === 0) return this.endRound(true, 'cleared');
     if (this.mode === 'defense' && this.wavesDone && this.reds.length === 0) return this.endRound(true, 'held');
@@ -1193,8 +1140,6 @@ export class Game {
     if (this.state === 'over') return;
     this.state = 'over';
     this.player.channel = null;
-    this.rec.frame();
-    this.rec.finish();
     const blueAll = this.units.filter((u) => u.team === 'blue');
     const cas = blueAll.filter((u) => !u.alive).length;
     let perfect = false, grade = 'F';
@@ -1302,7 +1247,6 @@ export class Game {
     this.state = 'live';
     this.waveTimer = 3;
     this.msg('DEFEND — hold your sectors', 'good', 2);
-    this.rec.event('begin', {});
   }
 
   // ───────────────────────────── input hooks ─────────────────────────────
@@ -1320,15 +1264,16 @@ export class Game {
     switch (code) {
       case 'KeyE': this.startReduce(); break;
       case 'KeyF': this.openDoor(); break;
-      case 'KeyQ': case 'Digit2':
+      case 'KeyQ':
         if (this.smokesLeft > 0 && p.alive) { this.smokesLeft--; this.throwSmoke(p, mp.x, mp.z, 'blue'); }
         else this.msg('No smoke left', 'warn', 1);
         break;
-      case 'Digit1': this.setSBF(mp.x, mp.z); break;
-      case 'Digit3': this.setSecure(mp.x, mp.z); break;
-      case 'Digit4': this.regroup(); break;
+      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4':
+        this.selectUnit(this.units.filter((u) => u.team === 'blue')[+code.slice(5) - 1]);
+        break;
+      case 'Tab': this.cycleUnit(); break;
+      case 'KeyG': this.toggleSuppressOrder(mp.x, mp.z); break;
       case 'KeyR': this.reload(); break;
-      case 'KeyB': p.fireMode = p.fireMode === 'auto' ? 'semi' : 'auto'; this.msg(`Fire mode: ${p.fireMode.toUpperCase()}`, 'info', 1); break;
       case 'KeyV': this.showFans = !this.showFans; break;
       default: break;
     }
@@ -1349,3 +1294,4 @@ function gauss() {
 }
 
 export { isPortalType };
+

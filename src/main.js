@@ -7,9 +7,7 @@ import { GameMap } from './map.js';
 import { DifficultyDirector } from './difficulty.js';
 import { recordResult, isUnlocked, resetProgress } from './progression.js';
 import * as UI from './ui.js';
-import { ReelPlayer } from './replay.js';
-import { buildScript } from './narrator.js';
-import { audio, speak, stopSpeech } from './audio.js';
+import { audio } from './audio.js';
 
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: false });
@@ -32,7 +30,7 @@ const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerH
 camera.position.set(0, 40, 30);
 camera.lookAt(0, 0, 0);
 
-const app = { screen: 'loading', game: null, level: null, reel: null, result: null, unlock: null, reelHold: 0, hudT: 0 };
+const app = { screen: 'loading', game: null, level: null, result: null, unlock: null, hudT: 0 };
 window.__app = app; // handy for debugging / automated tests
 
 function setScreen(name) {
@@ -42,14 +40,12 @@ function setScreen(name) {
   UI.show('briefing', name === 'briefing');
   UI.show('hud', name === 'playing' || name === 'paused');
   UI.show('pause', name === 'paused');
-  UI.show('reel', name === 'reel');
   UI.show('results', name === 'results');
 }
 
 // ───────────────────────── flow ─────────────────────────
 function openMenu() {
   disposeGame();
-  stopSpeech();
   UI.renderMenu(openBriefing);
   setScreen('menu');
 }
@@ -64,12 +60,10 @@ function openBriefing(level) {
 
 function disposeGame() {
   if (app.game) { app.game.dispose(); app.game = null; }
-  app.reel = null;
 }
 
 function startLevel(level) {
   disposeGame();
-  stopSpeech();
   app.level = level;
   app.game = new Game({ scene, camera, level, ui: { onRoundEnd } });
   const m = app.game.map;
@@ -87,27 +81,8 @@ function onRoundEnd(result) {
   const { newlyUnlocked } = recordResult(result.level.id, { win: result.win, grade: result.grade, time: result.time, perfect: result.perfect });
   app.result = result;
   app.unlock = newlyUnlocked;
-  playReel();
-}
-
-function playReel() {
-  const r = app.result;
-  stopSpeech();
-  app.script = app.script && app.scriptFor === r ? app.script : buildScript(r);
-  app.scriptFor = r;
-  app.reel = new ReelPlayer(app.game, r, app.script, document.getElementById('reelFrame'));
-  document.getElementById('reelLevel').textContent = `L${r.level.number} · ${r.level.name.toUpperCase()}`;
-  document.getElementById('reelCaption').dataset.key = '';
-  app.reelHold = 0;
-  setScreen('reel');
-  speak(app.script.map((l) => l.text).join(' '));
-}
-
-function endReel() {
-  if (app.screen !== 'reel') return;
-  stopSpeech();
   const next = app.level.id + 1;
-  UI.renderResults(app.result, app.unlock, next < LEVELS.length && isUnlocked(next));
+  UI.renderResults(result, newlyUnlocked, next < LEVELS.length && isUnlocked(next));
   setScreen('results');
 }
 
@@ -118,7 +93,6 @@ on('btnStart', () => startLevel(app.level));
 on('btnResume', () => setScreen('playing'));
 on('btnRestart', () => startLevel(app.level));
 on('btnQuit', openMenu);
-on('btnReel', playReel);
 on('btnRetry', () => startLevel(app.level));
 on('btnNext', () => { const n = LEVELS[app.level.id + 1]; if (n && isUnlocked(n.id)) openBriefing(n); });
 on('btnLevels', openMenu);
@@ -131,8 +105,6 @@ on('btnReset', (e) => {
   setTimeout(() => { if (resetArmed && Date.now() - resetArmed >= 4000) { resetArmed = 0; b.textContent = 'Reset progress'; } }, 4100);
 });
 document.getElementById('optSound').addEventListener('change', (e) => { audio.enabled = e.target.checked; });
-document.getElementById('optVoice').addEventListener('change', (e) => { audio.voice = e.target.checked; if (!audio.voice) stopSpeech(); });
-document.getElementById('reel').addEventListener('click', endReel);
 
 // ───────────────────────── input ─────────────────────────
 const ray = new THREE.Raycaster();
@@ -160,13 +132,11 @@ canvas.addEventListener('mousedown', (e) => {
     if (e.button === 2) g.prepUndo();
     return;
   }
-  if (e.button === 0) { g.input.fire = true; g.input.firePressed = true; }
+  if (e.button === 0) g.input.firePressed = true;
 });
-window.addEventListener('mouseup', (e) => { if (app.game && e.button === 0) app.game.input.fire = false; });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('wheel', (e) => { if (app.game && app.screen === 'playing') app.game.camDist = Math.max(16, Math.min(50, app.game.camDist + Math.sign(e.deltaY) * 2)); }, { passive: true });
 window.addEventListener('keydown', (e) => {
-  if (app.screen === 'reel' && (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape')) { e.preventDefault(); endReel(); return; }
   const g = app.game;
   if (e.code === 'Escape') {
     if (app.screen === 'playing') setScreen('paused');
@@ -175,12 +145,12 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (!g || app.screen !== 'playing') return;
-  if (['Space', 'ArrowUp', 'ArrowDown', 'Backspace'].includes(e.code)) e.preventDefault();
+  if (['Space', 'ArrowUp', 'ArrowDown', 'Backspace', 'Tab'].includes(e.code)) e.preventDefault();
   if (!e.repeat) g.onKey(e.code);
   g.input.keys[e.code] = true;
 });
 window.addEventListener('keyup', (e) => { if (app.game) app.game.input.keys[e.code] = false; });
-window.addEventListener('blur', () => { if (app.game) { app.game.input.keys = {}; app.game.input.fire = false; } });
+window.addEventListener('blur', () => { if (app.game) { app.game.input.keys = {}; } });
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -193,24 +163,6 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   const g = app.game;
   const W = window.innerWidth, H = window.innerHeight;
-  if (app.screen === 'reel' && app.reel) {
-    app.reel.update(dt);
-    UI.updateReel(app.reel, app.result);
-    if (app.reel.done) { app.reelHold += dt; if (app.reelHold > 1.6) endReel(); }
-    const r = document.getElementById('reelFrame').getBoundingClientRect();
-    renderer.setScissorTest(false);
-    renderer.setViewport(0, 0, W, H);
-    renderer.setClearColor(0x0b0e14, 1);
-    renderer.clear();
-    camera.aspect = r.width / r.height;
-    camera.updateProjectionMatrix();
-    renderer.setScissorTest(true);
-    renderer.setScissor(r.left, H - r.bottom, r.width, r.height);
-    renderer.setViewport(r.left, H - r.bottom, r.width, r.height);
-    renderer.render(scene, camera);
-    renderer.setScissorTest(false);
-    return;
-  }
   renderer.setViewport(0, 0, W, H);
   if (Math.abs(camera.aspect - W / H) > 1e-3) { camera.aspect = W / H; camera.updateProjectionMatrix(); }
   if (g && (app.screen === 'playing' || app.screen === 'results' || app.screen === 'paused')) {

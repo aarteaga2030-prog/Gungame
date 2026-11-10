@@ -123,13 +123,13 @@ When you press **E** at an obstacle, the sim looks at the reduction area: the br
 
 | | Satisfied when |
 |---|---|
-| **S**uppress | every overwatcher is suppressed (SAW support-by-fire, any near-miss) **or** can't see through smoke |
+| **S**uppress | every overwatcher is suppressed (a teammate on a `G` suppress order, your own fire, any near-miss) **or** can't see through smoke |
 | **O**bscure | there are no overwatchers, or smoke is within 12 m, or at least one overwatcher is blinded |
-| **S**ecure | the SEC rifleman is alive and holding a flank (`3`) |
+| **S**ecure | a teammate you are not controlling is within 14 m of the breach, holding a sector that faces away from it |
 | **R**educe | the 3 s / 5 s channel finishes without you moving, then a 1.2 s fuse |
 | **A**ssault | you cross the opening within the **1.5 s overpressure window** |
 
-A live five-chip HUD tracker shows the state of each letter before you commit.
+A live five-chip HUD tracker shows the state of each letter before you commit. Because you control one soldier at a time, SOSRA is a sequence of hand-offs: put one soldier on a suppress order, throw smoke, leave another holding the flank, then switch to the breacher.
 
 ### Fatal errors (hard-coded)
 
@@ -140,36 +140,7 @@ A live five-chip HUD tracker shows the state of each letter before you commit.
 
 ---
 
-## 4. "YouTube Shorts" breakdown reel
-
-* The recorder snapshots every unit, smoke cloud and claymore every 0.1 s, and logs every shot, blast, tile change, order and "key moment".
-* The reel is **10 seconds** in a 9:16 frame. Everything up to the last 3.5 s plays fast-forward, the finale plays in real time, and a pulsing ring marks the key moment (the unsuppressed window, the mortar impact, the final kill).
-* Captions pop in word by word, Shorts-style, with keywords and numbers in yellow. With *Narrator voice* turned on, the browser's speech synthesis reads the script aloud.
-* `src/narrator.js` builds a five-beat script (**HOOK → SETUP → CRUX + manual citation → CONSEQUENCE → TAKEAWAY**) from what actually happened: the failure cause, SOSRA flags per breach, stun-window timing, suppression time, smoke used, interlocking pairs and claymore kills.
-
-### C. Reel scripts
-
-**VICTORY BREAKDOWN REEL** (Perfect Breach)
-
-> **[0:00]** Five defenders. Forty-one seconds. Zero casualties. Here's how.
-> **[0:02]** Before the charge goes on, the gun is ALREADY talking. Suppress first — enemy accuracy drops to 5%.
-> **[0:04]** Smoke between the breach and the window. FM 3-34.2: you don't reduce until suppression AND obscuration are in place.
-> **[0:06]** Charge pops — overpressure stuns everyone in the room. They're through the hole 0.8 seconds later. Inside the window.
-> **[0:08]** Perfect breach. That's the standard. 🔥
-
-**DEFEAT BREAKDOWN REEL** (unsuppressed window, HARD)
-
-> **[0:00]** Watch this breach fall apart in under three seconds. 👀
-> **[0:02]** 0:14 — the breacher starts setting the charge. But look at that WINDOW. Nobody suppressed it.
-> **[0:04]** FM 3-34.2 is crystal clear: reduction CANNOT happen until effective suppression and obscuration are in place.
-> **[0:06]** One unanswered position and the whole breach element collapses. Mission over.
-> **[0:08]** Suppress. Obscure. Secure. THEN reduce. Every. Single. Time.
-
-Other generated variants cover the crossfire wipe from bunching in a doorway (ATTP 3-06.11 "move rapidly through the opening"), the mortar TRP, the claymore arc, wading through wire (FM 5-102 "obstacle covered by fire"), walking into an interlocking MG, an overrun objective with no interlocking sectors (ATP 3-21.8), and Flawless Defense.
-
----
-
-## 5. Level list
+## 4. Level list
 
 | # | Tier | Mode | Name | Teaches |
 |---|---|---|---|---|

@@ -144,29 +144,10 @@ button:disabled { opacity: .4; cursor: not-allowed; }
 #resUnlock:empty { display: none; }
 .res-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
 
-/* reel */
-#reel { position: fixed; inset: 0; z-index: 30; pointer-events: auto; }
-#reelFrame { position: absolute; top: 4vh; left: 50%; height: 92vh; aspect-ratio: 9 / 16; transform: translateX(-50%); border-radius: 18px; overflow: hidden; box-shadow: 0 0 0 2px #000, 0 20px 80px rgba(0,0,0,.6); pointer-events: none;
-  background: repeating-linear-gradient(0deg, rgba(0,0,0,.04) 0 2px, transparent 2px 4px); }
-.reel-bars { position: absolute; top: 10px; left: 12px; right: 12px; height: 3px; background: rgba(255,255,255,.35); border-radius: 2px; }
-#reelProg { height: 100%; width: 0; background: #fff; border-radius: 2px; }
-.reel-top { position: absolute; top: 22px; left: 16px; right: 16px; white-space: nowrap; overflow: hidden; font: 800 13px var(--cond); color: #fff; letter-spacing: .1em; text-shadow: 0 2px 6px rgba(0,0,0,.6); display: flex; align-items: center; gap: 8px; }
-.reel-top #reelLevel { margin-left: auto; font-size: 10px; opacity: .85; overflow: hidden; text-overflow: ellipsis; }
-.reel-dot { width: 9px; height: 9px; background: var(--red); border-radius: 50%; box-shadow: 0 0 8px var(--red); animation: blink 1s infinite; }
-@keyframes blink { 50% { opacity: .2; } }
-#reelVerdict { position: absolute; top: 50px; padding: 0 10px; left: 0; right: 0; text-align: center; font: 900 26px var(--cond); letter-spacing: .05em; color: #fff; -webkit-text-stroke: 1.5px #000; text-shadow: 0 4px 0 rgba(0,0,0,.4); }
-#reelVerdict.win { color: #3df59a; }
-#reelVerdict.loss { color: #ff4040; }
-#reelCaption { position: absolute; left: 8%; right: 14%; bottom: 23%; text-align: center; font: 900 25px/1.22 var(--cond); color: #fff; -webkit-text-stroke: 1.2px #000; paint-order: stroke fill; text-shadow: 0 3px 0 #000, 0 0 18px rgba(0,0,0,.5); }
-#reelCaption .w { display: inline-block; margin: 0 .14em; animation: wpop .14s ease-out; }
-#reelCaption .w.hl { color: #ffe23d; }
-@keyframes wpop { from { transform: scale(1.35); } }
-.reel-side { position: absolute; right: 10px; bottom: 22%; display: flex; flex-direction: column; gap: 16px; color: #fff; font-size: 26px; text-align: center; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
-.reel-side span { display: block; font: 700 11px var(--cond); }
-.reel-chan { position: absolute; left: 14px; bottom: 16px; color: #fff; font: 700 14px var(--cond); display: flex; align-items: center; gap: 8px; text-shadow: 0 2px 6px rgba(0,0,0,.7); }
-.avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--blue); display: inline-flex; align-items: center; justify-content: center; font-weight: 900; border: 2px solid #fff; }
-.sub-pill { background: #fff; color: #000; border-radius: 14px; padding: 4px 10px; font-size: 11px; text-shadow: none; }
-#reelSkip { position: absolute; bottom: 12px; right: 18px; color: rgba(255,255,255,.7); font: 600 12px var(--cond); letter-spacing: .08em; }
+#resDebrief { text-align: center; color: var(--ink2); font-size: 14px; line-height: 1.5; }
+#resDebrief:empty { display: none; }
+.sq.ctl { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(31, 111, 255, .35); }
+.sq .key { font: 700 10px var(--mono); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; margin-right: 6px; color: var(--ink2); }
 
 @media (max-width: 900px) {
   .tier-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
