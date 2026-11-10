@@ -122,7 +122,14 @@ on('btnReel', playReel);
 on('btnRetry', () => startLevel(app.level));
 on('btnNext', () => { const n = LEVELS[app.level.id + 1]; if (n && isUnlocked(n.id)) openBriefing(n); });
 on('btnLevels', openMenu);
-on('btnReset', () => { if (confirm('Reset all progress? Every level except Level 1 will be locked again.')) { resetProgress(); openMenu(); } });
+let resetArmed = 0;
+on('btnReset', (e) => {
+  const b = e.currentTarget;
+  if (Date.now() - resetArmed < 4000) { resetArmed = 0; b.textContent = 'Reset progress'; resetProgress(); openMenu(); return; }
+  resetArmed = Date.now();
+  b.textContent = 'Click again to reset';
+  setTimeout(() => { if (resetArmed && Date.now() - resetArmed >= 4000) { resetArmed = 0; b.textContent = 'Reset progress'; } }, 4100);
+});
 document.getElementById('optSound').addEventListener('change', (e) => { audio.enabled = e.target.checked; });
 document.getElementById('optVoice').addEventListener('change', (e) => { audio.voice = e.target.checked; if (!audio.voice) stopSpeech(); });
 document.getElementById('reel').addEventListener('click', endReel);
