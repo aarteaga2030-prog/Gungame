@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Killhouse — Tactical Breach Simulator</title>
+<link rel="stylesheet" href="style.css" />
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<!-- loading -->
+<div id="loading" class="screen">
+  <div class="load-box">
+    <div class="brand">KILLHOUSE<span>//SIM</span></div>
+    <div class="load-bar"><div id="loadFill"></div></div>
+    <div id="loadText">Loading assets…</div>
+  </div>
+</div>
+
+<!-- level select -->
+<div id="menu" class="screen hidden">
+  <header class="menu-head">
+    <div>
+      <div class="brand">KILLHOUSE<span>//SIM</span></div>
+      <div class="sub">Tactical breach &amp; defense simulator · FM 3-34.2 · ATP 3-21.8 · FM 5-102 · ATTP 3-06.11</div>
+    </div>
+    <div class="menu-opts">
+      <label><input type="checkbox" id="optSound" checked /> Sound</label>
+      <label><input type="checkbox" id="optVoice" checked /> Narrator voice</label>
+      <button id="btnReset" class="ghost">Reset progress</button>
+    </div>
+  </header>
+  <div id="levelGrid"></div>
+  <footer class="menu-foot">All levels are visible. Clear a level to unlock the next. Cleared levels can be replayed any time — chase <b>PERFECT BREACH</b> / <b>FLAWLESS DEFENSE</b>.</footer>
+</div>
+
+<!-- briefing -->
+<div id="briefing" class="screen hidden">
+  <div class="brief-wrap">
+    <div class="brief-map"><canvas id="briefMap"></canvas><div class="legend" id="legend"></div></div>
+    <div class="brief-info">
+      <div class="brief-tag" id="briefTag"></div>
+      <h1 id="briefName"></h1>
+      <p id="briefText"></p>
+      <div class="brief-res" id="briefRes"></div>
+      <div class="brief-h">SIM CONFIG <span>(difficulty state machine)</span></div>
+      <pre id="briefLog"></pre>
+      <div class="brief-h">CONTROLS</div>
+      <div class="controls" id="briefControls"></div>
+      <div class="brief-btns">
+        <button id="btnBack" class="ghost">← Levels</button>
+        <button id="btnStart" class="primary">START SIMULATION</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <div class="hud-tl">
+    <div id="hudLevel"></div>
+    <div id="hudTime">0:00</div>
+  </div>
+  <div class="hud-tc">
+    <div id="sosra"></div>
+    <div id="hudCenterInfo"></div>
+  </div>
+  <div class="hud-tr" id="squad"></div>
+  <div class="hud-br" id="weapon"></div>
+  <div class="hud-bl" id="hint"></div>
+  <div id="prompt"></div>
+  <div id="channel"><div id="channelFill"></div><span id="channelText"></span></div>
+  <div id="bunch"><div id="bunchFill"></div><span>BUNCHED IN THE FATAL FUNNEL — SPREAD OUT</span></div>
+  <div id="feed"></div>
+  <div id="prepBar"></div>
+  <div id="vignette"></div>
+</div>
+
+<!-- pause -->
+<div id="pause" class="screen dim hidden">
+  <div class="panel">
+    <h2>PAUSED</h2>
+    <button id="btnResume" class="primary">Resume</button>
+    <button id="btnRestart">Restart level</button>
+    <button id="btnQuit" class="ghost">Quit to level select</button>
+  </div>
+</div>
+
+<!-- breakdown reel -->
+<div id="reel" class="hidden">
+  <div id="reelFrame">
+    <div class="reel-bars"><div id="reelProg"></div></div>
+    <div class="reel-top"><span class="reel-dot"></span> TACTICAL BREAKDOWN <span id="reelLevel"></span></div>
+    <div id="reelVerdict"></div>
+    <div id="reelCaption"></div>
+    <div class="reel-side"><div>❤<span>98K</span></div><div>💬<span>2.1K</span></div><div>↗<span>Share</span></div></div>
+    <div class="reel-chan"><span class="avatar">K</span>@killhouse.sim <span class="sub-pill">Subscribe</span></div>
+  </div>
+  <div id="reelSkip">Click / SPACE to skip</div>
+</div>
+
+<!-- results -->
+<div id="results" class="screen dim hidden">
+  <div class="panel wide">
+    <div id="resRating"></div>
+    <div id="resGrade"></div>
+    <div id="resStats"></div>
+    <div id="resUnlock"></div>
+    <div class="res-btns">
+      <button id="btnReel">▶ Watch breakdown again</button>
+      <button id="btnRetry">Retry</button>
+      <button id="btnNext" class="primary">Next level →</button>
+      <button id="btnLevels" class="ghost">Level select</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
