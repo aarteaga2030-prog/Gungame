@@ -119,28 +119,13 @@ export class World {
     const bpts = [[0, 0], [map.w, 0], [map.w, map.h], [0, map.h], [0, 0]].map(([x, z]) => new THREE.Vector3(x, 0.03, z));
     this.group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(bpts), new THREE.LineBasicMaterial({ color: 0x2b6cff })));
 
-    // mortar zones
-    const mortarMat = new THREE.MeshBasicMaterial({ map: hatchTexture('rgba(255,120,0,0.35)'), transparent: true, depthWrite: false });
-    for (let r = 0; r < map.rows; r++) for (let c = 0; c < map.cols; c++) {
-      if (!map.mortar[map.idx(c, r)]) continue;
-      const p = map.center(c, r);
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(TILE, TILE), mortarMat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(p.x, 0.015, p.z);
-      this.group.add(m);
-    }
-
     for (let r = 0; r < map.rows; r++) for (let c = 0; c < map.cols; c++) this.buildTile(c, r, map.get(c, r), true);
 
-    // attacker avenues (defense levels)
-    const rMat = new THREE.MeshBasicMaterial({ color: 0xff2d2d, transparent: true, opacity: 0.16, depthWrite: false });
-    for (const r of map.attackerSpawns) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(TILE * 3, TILE), rMat);
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(r.x, 0.02, r.z);
-      this.group.add(m);
-      this.group.add(textSprite('ENEMY', '#ff2d2d', r.x, 0.4, r.z, 1.2));
-    }
+    // attackers' staging area
+    const st = new THREE.Mesh(new THREE.CircleGeometry(16, 48), new THREE.MeshBasicMaterial({ color: 0x1f6fff, transparent: true, opacity: 0.05, depthWrite: false }));
+    st.rotation.x = -Math.PI / 2;
+    st.position.set(map.spawn.x, 0.012, map.spawn.z);
+    this.group.add(st);
     // objective marker
     if (map.objective) {
       const o = map.objective;
@@ -154,7 +139,7 @@ export class World {
 
   orientAlongWall(c, r) {
     const m = this.map;
-    const solid = (t) => t === T.WALL || t === T.WINDOW || t === T.DOOR || t === T.BWALL || t === T.IRON;
+    const solid = (t) => t === T.WALL || t === T.WINDOW || t === T.DOOR || t === T.IRON;
     const ew = solid(m.get(c - 1, r)) || solid(m.get(c + 1, r));
     const ns = solid(m.get(c, r - 1)) || solid(m.get(c, r + 1));
     return ns && !ew ? 'z' : 'x';
@@ -185,7 +170,6 @@ export class World {
         this.box(S, 0.7, S, x, 2.3, z, this.mats.wall, g);
         break;
       }
-      case T.BWALL: this.box(S, 3, S, x, 0, z, this.mats.bwall, g); break;
       case T.IRON: {
         const ax = this.orientAlongWall(c, r);
         this.box(ax === 'x' ? S : 0.5, 2.2, ax === 'x' ? 0.5 : S, x, 0, z, this.mats.iron, g);
@@ -241,16 +225,6 @@ export class World {
       this.dynamic.set(i, g);
     }
     return g;
-  }
-
-  /** Reset every changeable tile to the map's original state (used by the replay). */
-  resetTiles() {
-    const m = this.map;
-    for (let r = 0; r < m.rows; r++) for (let c = 0; c < m.cols; c++) {
-      const i = m.idx(c, r);
-      const t = m.orig[i];
-      if (t === T.DOOR || t === T.BWALL || t === T.IRON || t === T.WIRE) this.buildTile(c, r, t);
-    }
   }
 }
 

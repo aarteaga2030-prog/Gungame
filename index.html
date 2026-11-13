@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Killhouse — Tactical Breach Simulator</title>
+<title>Killhouse Sim</title>
 <link rel="stylesheet" href="style.css" />
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.min.js" } }
@@ -12,7 +12,6 @@
 <body>
 <canvas id="view"></canvas>
 
-<!-- loading -->
 <div id="loading" class="screen">
   <div class="load-box">
     <div class="brand">KILLHOUSE<span>//SIM</span></div>
@@ -21,86 +20,95 @@
   </div>
 </div>
 
-<!-- level select -->
 <div id="menu" class="screen hidden">
   <header class="menu-head">
     <div>
       <div class="brand">KILLHOUSE<span>//SIM</span></div>
-      <div class="sub">Tactical breach &amp; defense simulator · FM 3-34.2 · ATP 3-21.8 · FM 5-102 · ATTP 3-06.11</div>
+      <div class="sub">Pick a map, a mission and the enemy. The AI fights only from its training and what it can see and hear.</div>
     </div>
-    <div class="menu-opts">
-      <label><input type="checkbox" id="optSound" checked /> Sound</label>
-      <button id="btnReset" class="ghost">Reset progress</button>
-    </div>
+    <label class="name-field">Callsign <input id="optName" maxlength="14" value="Operator" /></label>
   </header>
-  <div id="levelGrid"></div>
-  <footer class="menu-foot">All levels are visible. Clear a level to unlock the next. Cleared levels can be replayed any time — chase <b>PERFECT BREACH</b> / <b>FLAWLESS DEFENSE</b>.</footer>
+  <div class="setup">
+    <section class="col-maps">
+      <h3>Map</h3>
+      <div id="mapGrid"></div>
+    </section>
+    <section class="col-opts">
+      <h3>Mission</h3>
+      <div class="seg" id="segMission">
+        <button data-v="breach" class="on"><b>Breach</b><span>You assault the building. The AI defends it.</span></button>
+        <button data-v="defense"><b>Defend</b><span>You hold the building. The AI attacks it.</span></button>
+      </div>
+      <h3>Enemy force</h3>
+      <div class="diffs" id="diffs"></div>
+      <h3>AI teammates on your side</h3>
+      <div class="seg small" id="segMates">
+        <button data-v="0" class="on">0</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button>
+      </div>
+      <div class="play">
+        <button id="btnSolo" class="primary big">Play solo</button>
+        <div class="mp">
+          <button id="btnHost">Host online game</button>
+          <div class="join"><input id="joinCode" placeholder="Room code" maxlength="12" /><button id="btnJoin">Join</button></div>
+          <div id="netStatus" class="note">Checking online play…</div>
+        </div>
+      </div>
+      <details class="manual">
+        <summary>AI training manual <span id="manualCount"></span></summary>
+        <div id="manual"></div>
+      </details>
+    </section>
+  </div>
+  <section class="controls-ref">
+    <h3>Controls</h3>
+    <div class="controls" id="controlsRef"></div>
+  </section>
 </div>
 
-<!-- briefing -->
-<div id="briefing" class="screen hidden">
-  <div class="brief-wrap">
-    <div class="brief-map"><canvas id="briefMap"></canvas><div class="legend" id="legend"></div></div>
-    <div class="brief-info">
-      <div class="brief-tag" id="briefTag"></div>
-      <h1 id="briefName"></h1>
-      <p id="briefText"></p>
-      <div class="brief-res" id="briefRes"></div>
-      <div class="brief-h">SIM CONFIG <span>(difficulty state machine)</span></div>
-      <pre id="briefLog"></pre>
-      <div class="brief-h">CONTROLS</div>
-      <div class="controls" id="briefControls"></div>
-      <div class="brief-btns">
-        <button id="btnBack" class="ghost">← Levels</button>
-        <button id="btnStart" class="primary">START SIMULATION</button>
-      </div>
+<div id="lobby" class="screen hidden">
+  <div class="panel wide">
+    <div class="lobby-code">ROOM <b id="lobbyCode"></b></div>
+    <div id="lobbyCfg" class="lobby-cfg"></div>
+    <div id="lobbyPlayers" class="lobby-players"></div>
+    <div id="lobbyNote" class="note"></div>
+    <div class="res-btns">
+      <button id="btnLobbyStart" class="primary">Start mission</button>
+      <button id="btnLobbyLeave" class="ghost">Leave</button>
     </div>
   </div>
 </div>
 
-<!-- HUD -->
 <div id="hud" class="hidden">
-  <div class="hud-tl">
-    <div id="hudLevel"></div>
-    <div id="hudTime">0:00</div>
-  </div>
-  <div class="hud-tc">
-    <div id="sosra"></div>
-    <div id="hudCenterInfo"></div>
-  </div>
+  <div class="hud-tl"><div id="hudMission"></div><div id="hudEnemy"></div></div>
+  <div class="hud-tc"><div id="hudPhase"></div><div id="hudTimer"></div></div>
   <div class="hud-tr" id="squad"></div>
-  <div class="hud-br" id="weapon"></div>
+  <div class="hud-br" id="loadout"></div>
   <div class="hud-bl" id="hint"></div>
   <div id="prompt"></div>
   <div id="channel"><div id="channelFill"></div><span id="channelText"></span></div>
-  <div id="bunch"><div id="bunchFill"></div><span>BUNCHED IN THE FATAL FUNNEL — SPREAD OUT</span></div>
   <div id="feed"></div>
-  <div id="prepBar"></div>
+  <div id="spectate"></div>
   <div id="vignette"></div>
+  <div id="flash"></div>
 </div>
 
-<!-- pause -->
 <div id="pause" class="screen dim hidden">
   <div class="panel">
-    <h2>PAUSED</h2>
+    <h2 id="pauseTitle">PAUSED</h2>
     <button id="btnResume" class="primary">Resume</button>
-    <button id="btnRestart">Restart level</button>
-    <button id="btnQuit" class="ghost">Quit to level select</button>
+    <button id="btnRestart">Restart mission</button>
+    <button id="btnQuit" class="ghost">Quit to menu</button>
   </div>
 </div>
 
-<!-- results -->
 <div id="results" class="screen dim hidden">
   <div class="panel wide">
-    <div id="resRating"></div>
-    <div id="resGrade"></div>
-    <div id="resDebrief"></div>
+    <div id="resTitle"></div>
+    <div id="resReason"></div>
     <div id="resStats"></div>
-    <div id="resUnlock"></div>
     <div class="res-btns">
-      <button id="btnRetry">Retry</button>
-      <button id="btnNext" class="primary">Next level →</button>
-      <button id="btnLevels" class="ghost">Level select</button>
+      <button id="btnAgain" class="primary">Play again</button>
+      <button id="btnMenu" class="ghost">Main menu</button>
     </div>
   </div>
 </div>
