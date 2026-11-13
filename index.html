@@ -34,16 +34,27 @@
       <div id="mapGrid"></div>
     </section>
     <section class="col-opts">
+      <h3>Mode</h3>
+      <div class="seg" id="segMode">
+        <button data-v="play" class="on"><b>Play</b><span>You fight the AI, solo or with friends.</span></button>
+        <button data-v="watch"><b>AI vs AI</b><span>Pick two forces and watch them fight.</span></button>
+      </div>
       <h3>Mission</h3>
       <div class="seg" id="segMission">
-        <button data-v="breach" class="on"><b>Breach</b><span>You assault the building. The AI defends it.</span></button>
-        <button data-v="defense"><b>Defend</b><span>You hold the building. The AI attacks it.</span></button>
+        <button data-v="breach" class="on"><b>Breach</b><span id="mBreach">You assault the building. The AI defends it.</span></button>
+        <button data-v="defense"><b>Defend</b><span id="mDefend">You hold the building. The AI attacks it.</span></button>
       </div>
-      <h3>Enemy force</h3>
+      <div id="blueBlock" class="hidden">
+        <h3>Blue force</h3>
+        <div class="diffs" id="diffsBlue"></div>
+      </div>
+      <h3 id="redHead">Enemy force</h3>
       <div class="diffs" id="diffs"></div>
+      <div id="matesBlock">
       <h3>AI teammates on your side</h3>
       <div class="seg small" id="segMates">
         <button data-v="0" class="on">0</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button>
+      </div>
       </div>
       <div class="play">
         <button id="btnSolo" class="primary big">Play solo</button>
@@ -54,7 +65,7 @@
         </div>
       </div>
       <details class="manual">
-        <summary>AI training manual <span id="manualCount"></span></summary>
+        <summary>AI training <span id="manualCount"></span></summary>
         <div id="manual"></div>
       </details>
     </section>

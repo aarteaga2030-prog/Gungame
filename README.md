@@ -1,6 +1,6 @@
 # KILLHOUSE // SIM
 
-A top-down tactical shooter on a white "killhouse blueprint" grid, for solo and online co-op play. You pick a **map**, a **mission** and an **enemy force**, and then you play. There are no levels and no unlocks.
+A top-down tactical shooter on a white "killhouse blueprint" grid, for solo and online co-op play, plus an **AI vs AI** mode. You pick a **map**, a **mission** and the forces, and then you play or watch. There are no levels and no unlocks.
 
 - **Breach:** your side assaults the building and the AI defends it.
 - **Defend:** your side holds the building and the AI attacks it.
@@ -8,7 +8,7 @@ A top-down tactical shooter on a white "killhouse blueprint" grid, for solo and 
 
 You have full control of your soldier. Nothing is scripted. There are no instant-loss rules and no forced kills: rounds, grenades, charges and claymores do damage, and that's it.
 
-The AI fights only from its **training** (doctrine "pages" taken from FM 3-34.2, ATP 3-21.8, FM 5-102 and ATTP 3-06.11; see `src/doctrine.js`) and its **senses**. It does not know the map layout or where you are. It builds its own map by looking around. It learns where you are by spotting you (which takes time), by hearing your shots and explosions (which gives a rough position) and by taking fire. See [DESIGN.md](DESIGN.md).
+The AI fights only from its **training** and its **senses**. Every AI force, at every difficulty, is trained on **1,098 of the 1,247 pages** of FM 3-34.2, ATP 3-21.8, FM 5-102 and ATTP 3-06.11. The pages left out are covers, contents, indexes, glossaries and blank pages. `src/manual.js` indexes every page by topic, and `src/doctrine.js` builds the AI's 25 drills from that coverage. You can browse the pages from the menu under **AI training**. It does not know the map layout or where you are. It builds its own map by looking around. It learns where you are by spotting you (which takes time), by hearing your shots and explosions (which gives a rough position) and by taking fire. See [DESIGN.md](DESIGN.md).
 
 ## Run it
 
@@ -28,6 +28,19 @@ Any static server works for solo play (for example `python3 -m http.server`). On
 
 The game runs on the host's browser, and the others send their input and receive snapshots. If a player drops out, an AI takes over their soldier.
 
+### AI vs AI
+
+Choose **AI vs AI** on the menu, pick a **Blue force** and a **Red force** (any of the four, for example a Marine rifle squad against a Marine rifle squad) and choose whether blue attacks or defends. Then click **Watch**, or **Host online** so others can join the room and watch with you.
+
+| Spectator key | Action |
+|---|---|
+| WASD / Wheel | pan / zoom |
+| Tab | follow the next soldier |
+| V | view everything, or only what blue or red can see |
+| 1–4 | sim speed 1×, 2×, 4× or 8× (when watching solo) |
+
+The forces panel shows each side's strength and the drill it is running, with its manual reference.
+
 ## Controls
 
 | Key | Action |
@@ -46,7 +59,8 @@ The game runs on the host's browser, and the others send their input and receive
 
 | File | What's in it |
 |---|---|
-| `src/doctrine.js` | the AI's training pages (with manual references) and the four enemy-force profiles |
+| `src/manual.js` | generated index of every manual page: reference, heading, topics (`tools/mkmanual.py` rebuilds it from the PDFs) |
+| `src/doctrine.js` | training built from that index, the 25 drills (with manual references) and the four force profiles |
 | `src/ai.js` | perception (belief map, spotting, hearing, incoming fire) and the doctrine behaviours |
 | `src/sim.js` | authoritative simulation: movement, physical rounds, damage, grenades, smoke, charges, claymores, doors, outcomes |
 | `src/maps.js`, `src/map.js` | the map catalog (terrain only) and the grid, line-of-sight and A* code |

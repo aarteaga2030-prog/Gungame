@@ -10,6 +10,8 @@
 // Everything it plans (paths, positions, sectors, breach points) uses only that belief map.
 import { T, TILE, blocksMove, blocksSight, isLowCover, isBreachable, astar, segPointDist } from './map.js';
 import { knows } from './doctrine.js';
+
+const STAIRS_T = T.STAIRS;
 import { gauss } from './sim.js';
 
 const UNKNOWN = 255;
@@ -156,6 +158,7 @@ export class TeamAI {
       if (this.posture === 'defend') this.thinkDefend(mem);
       else if (this.posture === 'attack') this.thinkAttack(mem);
       else this.thinkEscort(mem);
+      this.casualtyCare(mem);
     }
     for (const u of mem) this.act(u, dt);
   }
@@ -187,11 +190,15 @@ export class TeamAI {
           ai.task = { type: 'move', to: ai.pos.p, then: { type: 'hold', at: ai.pos.p, look: 'sector' }, sprint: true };
         }
       }
-      // react to contacts that no one can see: the nearest pair goes to clear (page 'search' / 'cqb')
+      // drill 'counterattack': an enemy foothold inside the position → a team throws him out
+      // drill 'search': a heard-but-unseen contact nearby → the nearest pair re-establishes contact
       const blind = contact.filter((c) => !c.seen && dist(c, this.anchor) < 22);
-      if (blind.length && knows(this.P, 'search')) {
+      if (blind.length && (knows(this.P, 'search') || knows(this.P, 'counterattack'))) {
         const c = blind[0];
-        const free = mem.filter((u) => !u.ai.target && u.ai.task?.type !== 'clear').sort((a, b) => dist(a, c) - dist(b, c)).slice(0, mem.length >= 6 ? 2 : 1);
+        const foothold = dist(c, this.anchor) < 12 && knows(this.P, 'counterattack') && mem.length >= 4;
+        const n = foothold ? Math.min(4, mem.length - 2) : mem.length >= 6 ? 2 : 1;
+        const free = mem.filter((u) => !u.ai.target && u.ai.task?.type !== 'clear' && !u.ai.wounded).sort((a, b) => dist(a, c) - dist(b, c)).slice(0, n);
+        if (foothold && free.length) this.counterT = this.sim.t;
         for (const u of free) {
           if (dist(u, c) < 18 && this.sim.t - c.t < 4) u.ai.task = { type: 'clear', to: { x: c.x, z: c.z }, until: this.sim.t + 10 };
         }
@@ -213,7 +220,7 @@ export class TeamAI {
       if (k === UNKNOWN) continue;
       const p = m.center(c, r);
       if (dist(p, this.anchor) > 22) continue;
-      if (OPENING(k)) portals.push({ ...p, c, r, t: k, cover: [] });
+      if (OPENING(k) || (k === STAIRS_T && knows(this.P, 'stairs'))) portals.push({ ...p, c, r, t: k, cover: [] });
       else if (!blocksMove(k) && k !== T.WIRE && dist(p, this.anchor) < 16) cands.push({ ...p, c, r });
     }
     const doors = portals.filter((p) => p.t !== T.WINDOW);
@@ -241,10 +248,14 @@ export class TeamAI {
           if (w > pw) { pw = w; primary = p; }
         }
         if (!primary) continue;
+        const backFromWindows = knows(this.P, 'windows');
         for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const t = this.tileOf(cd.c + dc, cd.r + dr);
-          if (isLowCover(t)) s += 1.2; else if (t === T.WALL) s += 0.4;
+          // drill 'windows': don't stand in the window — fight from back inside the room
+          if (t === T.WINDOW) s += backFromWindows ? -2.5 : 1.2;
+          else if (isLowCover(t)) s += 1.2; else if (t === T.WALL) s += 0.4;
         }
+        if (this.tileOf(cd.c, cd.r) === T.PLATFORM && knows(this.P, 'windows')) s += 1.5; // upper level / elevated firing position
         s -= dist(u, cd) * 0.04;
         if (s > bs) { alt = best; as = bs; bs = s; best = { p: cd, primary }; } else if (s > as) { alt = { p: cd, primary }; as = s; }
       }
@@ -292,6 +303,10 @@ export class TeamAI {
       if (canFlank && this.flankTeam == null) {
         this.flankTeam = teamIds.find((t) => t !== base);
         this.flankPt = this.flankPoint(c, teams.get(this.flankTeam));
+        // drill 'danger': screen the open ground the flank team must cross
+        const ft = teams.get(this.flankTeam) || [];
+        const sm = ft.find((x) => x.smokes > 0);
+        if (sm && knows(this.P, 'danger') && this.flankPt) sm.ctl.smoke = { x: sm.x + (c.x - sm.x) * 0.4, z: sm.z + (c.z - sm.z) * 0.4 };
       }
       for (const [tm, us] of teams) {
         for (const u of us) {
@@ -348,7 +363,11 @@ export class TeamAI {
         const us = teams.get(tm);
         const tl = us.find((u) => u.role === 'TL' || u.role === 'SL') || us[0];
         us.forEach((u, k) => {
-          if (bounding && i !== this.bound) { u.ai.task = { type: 'hold', at: { x: u.x, z: u.z }, look: 'obj', crouch: true }; return; }
+          if (bounding && i !== this.bound) {
+            const rear = knows(this.P, 'security') && k === us.length - 1 && us.length > 2;
+            u.ai.task = rear ? { type: 'hold', at: { x: u.x, z: u.z }, look: 'yaw', yaw: tl.yaw + Math.PI, crouch: true } : { type: 'hold', at: { x: u.x, z: u.z }, look: 'obj', crouch: true };
+            return;
+          }
           if (u === tl) u.ai.task = { type: 'move', to: goal, look: 'path', sprint: !bounding && dist(u, goal) > 20 };
           else {
             const side = k % 2 ? 1 : -1, back = 3 + Math.ceil(k / 2) * 3;
@@ -382,7 +401,12 @@ export class TeamAI {
         if (b && dist(lead, b.stack) < 25) { this.breach = b; b.step = 'setup'; this.state = 'breach'; this.stateT = 0; return; }
       }
       lead.ai.task = { type: 'move', to: obj, look: 'path', cqb: true };
-      mem.filter((u) => u !== lead).forEach((u, k) => { u.ai.task = { type: 'follow', who: lead.id, gap: 1.6 * (k + 1), look: 'path', cqb: true }; });
+      // the lead fire team clears in file; the rest trail well back and keep 360° security (drill 'security')
+      const leadTeam = mem.filter((u) => u !== lead && u.fireTeam === lead.fireTeam && u.role !== 'SL').slice(0, 3);
+      leadTeam.forEach((u, k) => { u.ai.task = { type: 'follow', who: lead.id, gap: 1.6 * (k + 1), look: 'path', cqb: true }; });
+      mem.filter((u) => u !== lead && !leadTeam.includes(u)).forEach((u, k) => {
+        u.ai.task = { type: 'follow', who: lead.id, gap: 8 + 2.2 * k, look: k % 3 === 2 ? 'out' : 'path', cqb: true };
+      });
     }
   }
 
@@ -582,14 +606,21 @@ export class TeamAI {
     }
 
     // 3. combat: engage what I see (page 'discipline')
-    const vis = this.enemies.filter((e) => this.sees(u, e)).sort((a, b) => dist(u, a) - dist(u, b));
+    // drill 'targets': whoever is shooting at me first, then automatic weapons and leaders, then the nearest
+    const prio = knows(this.P, 'targets');
+    const score = (e) => dist(u, e) - (prio ? ((this.sim.t - e.lastFired < 2 && Math.abs(angDiff(e.yaw, yawTo(e, u))) < 0.35) ? 15 : 0) + (e.weapon === 'ar' ? 5 : 0) + (e.role === 'SL' || e.role === 'TL' ? 2 : 0) : 0);
+    const vis = this.enemies.filter((e) => this.sees(u, e)).sort((a, b) => score(a) - score(b));
     const tgt = vis[0] || null;
     if (tgt) {
       if (ai.target !== tgt.id) { ai.target = tgt.id; ai.react = this.P.reaction * (0.8 + this.rand() * 0.5) + (u.suppression > 0.5 ? 0.4 : 0); }
       ai.react -= dt;
       look = tgt;
       if (task.type === 'move' && !task.assault && !task.cqb && this.posture !== 'escort') moveTo = null; // stop and fight
-      if (ai.react <= 0 && this.clearShot(u, tgt)) this.fire(u, tgt, false, dt);
+      // drill 'ambush': a concealed defender holds fire until the enemy is in the engagement area,
+      // the position is compromised, or someone else has initiated
+      const hold = this.posture === 'defend' && knows(this.P, 'ambush') && !this.initiated &&
+        dist(u, tgt) > 22 && this.sim.t - (ai.underFire || -99) > 3 && this.sim.t - tgt.lastFired > 3;
+      if (ai.react <= 0 && !hold && this.clearShot(u, tgt)) { this.fire(u, tgt, false, dt); this.initiated = true; }
     } else {
       ai.target = null;
       if (task.type === 'cover' && task.suppress && !moveTo && this.sim.t > (ai.supNext || 0)) {
@@ -626,6 +657,35 @@ export class TeamAI {
       c.ax = u.x + Math.sin(ny) * 5; c.az = u.z + Math.cos(ny) * 5;
       if (tgt && Math.abs(d) < 0.08) { c.ax = tgt.x; c.az = tgt.z; }
     } else if (moveTo) { c.ax = moveTo.x; c.az = moveTo.z; }
+  }
+
+  /** drill 'casualty': the wounded get to cover; the nearest buddy covers them. */
+  casualtyCare(mem) {
+    if (!knows(this.P, 'casualty')) return;
+    const threat = this.recentContacts(10)[0];
+    this.buddies = (this.buddies || []).filter((k) => this.sim.t < k.until && k.buddy.alive);
+    for (const u of mem) {
+      if (u.hp >= 45 || !threat) continue;
+      if (!u.ai.wounded) {
+        u.ai.wounded = true;
+        const buddy = mem.filter((b) => b !== u && !b.ai.wounded && dist(b, u) < 12).sort((a, b) => dist(a, u) - dist(b, u))[0];
+        if (buddy) this.buddies.push({ buddy, until: this.sim.t + 8, back: buddy.ai.task });
+      }
+      // the task is re-applied every think, after the team's plan, so the plan can't pull him back out
+      u.ai.task = { type: 'cover', threat: { x: threat.x, z: threat.z }, suppress: false };
+    }
+    for (const k of this.buddies) {
+      if (threat) k.buddy.ai.task = { type: 'cover', threat: { x: threat.x, z: threat.z }, suppress: true };
+      if (this.sim.t > k.until - 0.5 && this.posture === 'defend') k.buddy.ai.task = k.back;
+    }
+  }
+
+  besideCover(c, r) {
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      const t = this.tileOf(c + dc, r + dr);
+      if (t === T.WALL || isLowCover(t) || t === T.IRON) return true;
+    }
+    return false;
   }
 
   /** Aimed fire at a seen enemy, or suppressive bursts into a suspected position. */
@@ -706,11 +766,13 @@ export class TeamAI {
     const ai = u.ai, c = u.ctl;
     if (!ai.path || this.sim.t > ai.pathT || !ai.goal || dist(ai.goal, to) > 1.5) {
       const exp = task.exposure;
+      const hug = this.posture === 'attack' && knows(this.P, 'urbanmove');
       const expCache = new Map();
       ai.path = astar(this.map, u, to,
         (cc, rr) => { const t = this.tileOf(cc, rr); return !blocksMove(t) || (t === T.DOOR && this.posture !== 'defend'); },
         (cc, rr, t) => {
           let k = (this.know[this.map.idx(cc, rr)] === UNKNOWN ? 1.3 : 1) + (t === T.WIRE ? 4 : 0) + (t === T.DOOR ? 2 : 0);
+          if (hug && !this.besideCover(cc, rr)) k += 0.35; // drill 'urbanmove': move along walls
           if (exp) {
             const key = cc * 1000 + rr;
             if (!expCache.has(key)) { const p = this.map.center(cc, rr); expCache.set(key, dist(p, exp) < 30 && this.beliefLos(p.x, p.z, exp.x, exp.z)); }
@@ -732,7 +794,8 @@ export class TeamAI {
     const dx = wp.x - u.x, dz = wp.z - u.z, L = Math.hypot(dx, dz) || 1;
     c.mx = dx / L; c.mz = dz / L;
     // don't linger in a doorway
-    if (task.cqb && OPENING(this.map.tileAt(u.x, u.z))) c.sprint = true;
+    const here = this.map.tileAt(u.x, u.z);
+    if ((task.cqb && OPENING(here)) || (here === STAIRS_T && knows(this.P, 'stairs'))) c.sprint = true;
     // stuck detection → replan
     if (dist(u, ai.last) < 0.05) { ai.stuck += dt; if (ai.stuck > 1) { ai.pathT = 0; ai.stuck = 0; c.mx += (this.rand() - 0.5); c.mz += (this.rand() - 0.5); } }
     else ai.stuck = 0;

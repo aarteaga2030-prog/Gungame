@@ -28,31 +28,63 @@ The defending side gets a prep phase: 20 s when the AI defends, 45 s when you do
 * **Incoming fire.** A near miss or a hit tells the soldier the rough direction and distance of the shooter.
 * **Contacts.** The squad shares contacts by radio, and they expire after 45 s.
 
-## 3. Doctrine pages and how they drive behaviour
+## 3. Training: nearly every page of the manuals
 
-| Page | Source | Behaviour in `ai.js` |
+`tools/mkmanual.py` reads the four PDFs (via pdftotext) and writes `src/manual.js`, which has one entry per PDF page: manual, page, paragraph range, heading and a bitmask of the 26 topics that page teaches. Topics include organization, movement, contact, fire and movement, suppression, obscuration, breaching, room clearing, stairs, windows, defense, interlocking fires, obstacles, cover, grenades, alternate positions, counterattack, ambush and engagement areas, search, break contact, casualty care, fire control, urban terrain, communications, security and planning.
+
+| Manual | Pages | Trained |
 |---|---|---|
-| Squad organization | ATP 3-21.8 ch.1 | the force is built as SL + fire teams of TL, AR, GR, RF |
-| Formations & movement | ATP 3-21.8 ch.2 | wedge per fire team; bounding overwatch by team inside 45 m of the objective |
-| React to contact | ATP 3-21.8 battle drill | return fire, move to cover from the threat (belief LOS or low cover between), report |
-| Fire and movement | ATP 3-21.8 ch.2–3 | the team closest to the contact becomes the base of fire; another team flanks along a route that avoids the contact's line of sight, then assaults |
-| Suppression | FM 3-34.2 ¶1-12 | the AR fires sustained bursts into the last known position without a visible target; riflemen add fire |
-| SOSRA | FM 3-34.2 ¶1-11–1-19 | at the first door, wall or wire on the route: support suppresses known windows and contacts near the breach, smoke goes between them and the breach, one man secures the flank, the breacher sets the charge, and the stack assaults straight after the blast |
-| Entering and clearing | ATTP 3-06.11 ¶7-52, 7-95–7-100 | frag before entry, sprint through the doorway (fatal funnel), alternate left and right to points of domination, move through the building as a file, stack and breach inner doors and barricades |
-| Occupying a defense | ATP 3-21.8 ch.6 | reconnoiter the building first, then pick positions that see the known doors and windows (never in a doorway), assign sectors, reward lines crossing an existing coverer at 45–90° (interlocking); the AR takes the most likely approach |
-| Obstacles covered by fire | FM 5-102 | claymores placed 2.6 m inside covered doors, facing them |
-| Alternate positions | ATP 3-21.8 ch.6 | displace to the alternate position when pinned |
-| Lost contact | ATP 3-21.8 ch.2 | the nearest pair moves to clear a heard-but-unseen contact inside the position, throwing a frag first |
-| Break contact | ATP 3-21.8 battle drill | above 70% losses: smoke, then fall back |
-| Fire discipline | ATP 3-21.8 ch.2 | never fire with a friendly in the line of fire |
+| FM 3-34.2 Combined-Arms Breaching Operations | 149 | 131 |
+| ATP 3-21.8 Infantry Rifle Platoon and Squad | 596 | 532 |
+| FM 5-102 Countermobility | 218 | 181 |
+| ATTP 3-06.11 Combined Arms Operations in Urban Terrain | 284 | 254 |
+| **Total** | **1,247** | **1,098** |
 
-## 4. Enemy forces
+The 149 pages left out are covers, tables of contents, indexes, glossaries, reference lists and blank pages. Figure-only pages are trained.
+
+Every force at every difficulty is trained on all 1,098 pages. A drill is enabled only when the force has studied at least half of the pages that teach its topics, which with full training is all of them. Difficulty no longer removes knowledge. It changes size, experience (reaction, aim, spotting, hearing, how fast decisions are made) and kit.
+
+### Drills (`ai.js`), each gated by its topics
+
+| Drill | Topics | What the AI does |
+|---|---|---|
+| Squad organization | org | SL plus fire teams of TL, AR, GR, RF |
+| Formations / bounding overwatch | movement | wedge; within 45 m of the objective, teams alternate bounding, and the overwatching team's last man faces the rear |
+| React to contact | contact, cover | return fire, go to cover from the threat (cover, not just concealment), report |
+| Fire and movement | firemove | the team in contact is the base of fire; another team flanks on a route that avoids the contact's line of sight, then assaults |
+| Crossing danger areas | obscure, movement | the flank team smokes the open ground before crossing it |
+| Suppression | suppress | AR bursts and rifle fire into the last known position |
+| SOSRA breaching | breach, obscure, suppress | suppress windows and contacts that see the breach, smoke, secure the flank, charge, assault |
+| Entering and clearing rooms | cqb, urban | frag first, sprint through doorways, points of domination; one fire team clears in file while the rest trail with security; inner doors and barricades get their own breach |
+| Stairwells | stairs | defenders treat stairs as entry points to cover; attackers never stop on stairs |
+| Fire from inside the room | windows, urban | defenders avoid standing in windows and prefer positions back in the room or elevated |
+| Move along walls | urban, movement | attackers' routes favour tiles next to walls or cover |
+| Occupying a defense | defense | recon, then covered positions with sectors over known doors, windows and stairs, never in a doorway |
+| Interlocking sectors | interlock | reward a second coverer crossing at 45–90° |
+| Obstacles covered by fire | obstacles | claymores inside covered doors |
+| Hold fire for the engagement area | ambush, firecontrol | concealed defenders hold fire beyond 22 m until compromised or until someone initiates |
+| Target priority | firecontrol | whoever is shooting at me, then automatic weapons and leaders, then the nearest |
+| Alternate positions | alternate | displace when pinned |
+| Counterattack | counterattack | an enemy foothold within 12 m of the position draws a team-sized counterattack |
+| Re-establish lost contact | search | a pair moves on a heard-but-unseen contact |
+| Casualty care under fire | casualty | the wounded (<45 HP) go to cover and the nearest buddy covers them for 8 s |
+| 360° security | security | consolidate facing out; rear security on halts |
+| Grenades | grenades | frags into rooms, 40 mm on unseen positions |
+| Break contact | break | above 70% losses: smoke, then fall back |
+| Report contacts | comms | every contact is shared squad-wide |
+| Fire discipline | firecontrol | no firing with a friend in the line |
+
+## 4. AI vs AI
+
+`Sim` takes `blueForce`. Blue then becomes a full AI force with its own TeamAI (attack or defend, from the mission). Each side has its own belief map and contacts, and neither side sees the other's knowledge. Hosting an AI-vs-AI match online works like a normal game: the host simulates, and everyone in the room spectates from snapshots.
+
+## 5. Forces
 
 | Profile | Size | Reaction | Aim error (σ) | Spot rate | Hearing | Kit | Pages trained |
 |---|---|---|---|---|---|---|---|
-| Recruit fire team | 4 | 1.1 s | 0.10 rad | 0.7 | 25 m | — | 5 of 13 |
-| Regular section | 7 | 0.75 s | 0.07 rad | 1.0 | 35 m | 1 frag, 2×40 mm, smoke, 1 claymore | 9 of 13 |
-| Veteran squad | 9 | 0.5 s | 0.045 rad | 1.3 | 45 m | 2 frags, 4×40 mm, smoke, 2 claymores | all |
-| Marine rifle squad | 13 | 0.3 s | 0.03 rad | 1.7 | 55 m | 2 frags, 6×40 mm, 2 smoke, 3 claymores | all |
+| Recruit fire team | 4 | 1.1 s | 0.10 rad | 0.7 | 25 m | 1 frag, 2×40 mm, smoke, 1 claymore | 1,098 |
+| Regular section | 7 | 0.75 s | 0.07 rad | 1.0 | 35 m | 1 frag, 3×40 mm, smoke, 1 claymore | 1,098 |
+| Veteran squad | 9 | 0.5 s | 0.045 rad | 1.3 | 45 m | 2 frags, 4×40 mm, smoke, 2 claymores | 1,098 |
+| Marine rifle squad | 13 | 0.3 s | 0.03 rad | 1.7 | 55 m | 2 frags, 6×40 mm, 2 smoke, 3 claymores | 1,098 |
 
 At the top setting a "full squad of Marines" means 13 riflemen who react in 0.3 s, aim to within about 1.7°, spot a moving man in a fraction of a second, use 40 mm grenades on positions they can't see, flank, and breach their own entry points.

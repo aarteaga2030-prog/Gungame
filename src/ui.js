@@ -1,6 +1,7 @@
 // DOM helpers: map thumbnails, menu widgets, HUD and results.
 import { MAPS } from './maps.js';
-import { PAGES, PROFILES, PROFILE_ORDER } from './doctrine.js';
+import { DRILLS, PROFILES, PROFILE_ORDER, TRAINING, STATE_DRILL, drill } from './doctrine.js';
+import { PAGE_INDEX, TOPICS, MANUALS } from './manual.js';
 
 export const $ = (id) => document.getElementById(id);
 export function show(id, on = true) { $(id).classList.toggle('hidden', !on); }
@@ -50,8 +51,8 @@ export function renderMapGrid(selected, onPick) {
   }
 }
 
-export function renderDiffs(selected, onPick) {
-  const el = $('diffs');
+export function renderDiffs(selected, onPick, elId = 'diffs') {
+  const el = $(elId);
   el.innerHTML = '';
   for (const k of PROFILE_ORDER) {
     const p = PROFILES[k];
@@ -61,9 +62,28 @@ export function renderDiffs(selected, onPick) {
     b.onclick = () => onPick(k);
     el.appendChild(b);
   }
-  const prof = PROFILES[selected];
-  $('manualCount').textContent = `· ${prof.pages.length}/${PAGES.length} pages trained`;
-  $('manual').innerHTML = PAGES.map((p) => `<div class="page ${prof.pages.includes(p.id) ? '' : 'off'}"><b>${esc(p.title)}</b><i>${esc(p.ref)}</i><p>${esc(p.text)}</p></div>`).join('');
+}
+
+/** The training panel: what the AI studied (every doctrinal page) and the drills it runs. */
+export function renderTraining() {
+  $('manualCount').textContent = `· ${TRAINING.pages.toLocaleString()} of ${TRAINING.totalPages.toLocaleString()} pages`;
+  const man = TRAINING.perManual.map((m) => `<span>${esc(m.short)} — ${esc(m.title)}</span><span>${m.trained}/${m.pages}</span>`).join('');
+  const drills = DRILLS.map((d) => `<div class="page"><b>${esc(d.title)}</b><i>${esc(d.ref)} · studied from ${d.topics.map((t) => `${TRAINING.perTopic[t].got} “${t}” pages`).join(', ')}</i><p>${esc(d.text)}</p></div>`).join('');
+  $('manual').innerHTML = `
+    <p class="train-sum">Every AI force, at every difficulty, is trained on every doctrinal page of the four manuals. Only covers, contents, indexes, glossaries and blank pages are left out. Difficulty changes the force's size, experience and kit, not what it knows.</p>
+    <div class="train-man">${man}</div>
+    <div class="browse"><select id="pgTopic"><option value="">All topics</option>${TOPICS.map((t) => `<option>${t}</option>`).join('')}</select><input id="pgFind" placeholder="Search page headings" /></div>
+    <div class="pagelist" id="pgList"></div>
+    <h3>Drills built from those pages</h3>${drills}`;
+  const list = () => {
+    const t = $('pgTopic').value, q = $('pgFind').value.toLowerCase();
+    const bit = t ? 1 << TOPICS.indexOf(t) : 0;
+    const rows = PAGE_INDEX.filter((p) => p[5] && (!bit || p[4] & bit) && (!q || p[3].toLowerCase().includes(q)));
+    $('pgList').innerHTML = rows.slice(0, 120).map((p) => `<div><b>${esc(MANUALS[p[0]].short)}</b> p.${p[1]} ${esc(p[2])} — ${esc(p[3])}</div>`).join('') + (rows.length > 120 ? `<div>…and ${rows.length - 120} more</div>` : '') + (rows.length ? '' : '<div>No pages match.</div>');
+  };
+  $('pgTopic').onchange = list;
+  $('pgFind').oninput = list;
+  list();
 }
 
 export const CONTROLS = [
@@ -80,6 +100,8 @@ export function renderControls() {
 let lastFeed = '';
 /** st: decoded snapshot; info: { mission, mapName, diff, roster, myId, messages, prompt, spectating } */
 export function updateHUD(st, info) {
+  if (info.watch) return updateSpectatorHUD(st, info);
+  $('loadout').style.display = '';
   const prof = PROFILES[info.diff];
   $('hudMission').textContent = `${info.mapName.toUpperCase()} · ${info.mission === 'breach' ? 'BREACH' : 'DEFEND'} · ${prof.label.toUpperCase()}`;
   const reds = info.roster.filter((r) => r[1]);
@@ -119,14 +141,45 @@ export function updateHUD(st, info) {
   if (feed !== lastFeed) { $('feed').innerHTML = feed; lastFeed = feed; }
 }
 
+const STATE_LABEL = { recon: 'Reconnoitering', occupy: 'Occupying positions', hold: 'Holding sectors', advance: 'Advancing', contact: 'Fire and movement', breach: 'Breaching (SOSRA)', clear: 'Clearing rooms', consolidate: 'Consolidating', break: 'Breaking contact', follow: 'Following' };
+
+function updateSpectatorHUD(st, info) {
+  const c = info.cfg;
+  $('hudMission').textContent = `${info.mapName.toUpperCase()} · ${c.mode === 'watch' ? 'AI vs AI' : 'SPECTATING'} · BLUE ${c.mission === 'breach' ? 'ATTACKS' : 'DEFENDS'}`;
+  $('hudEnemy').textContent = `View: ${info.vision === 'all' ? 'everything' : info.vision + ' side only'} · speed ${info.speed}×`;
+  $('hudPhase').textContent = st.phase === 'prep' ? 'DEFENDERS SETTING IN' : c.mission === 'breach' ? 'BLUE MUST CLEAR THE BUILDING' : 'RED MUST TAKE THE BUILDING';
+  $('hudTimer').textContent = fmt(st.phase === 'prep' ? st.prepLeft : st.timeLeft);
+  const force = (isRed, key, state) => {
+    const ids = info.roster.filter((r) => !!r[1] === isRed).map((r) => r[0]);
+    const alive = ids.filter((id) => st.units.get(id)?.alive).length;
+    const d = drill(STATE_DRILL[state] || 'org');
+    return `<div class="force ${isRed ? 'red' : ''}">${isRed ? 'RED' : 'BLUE'} · ${esc(key ? PROFILES[key].label : 'Players')} · ${alive}/${ids.length}
+      <div class="bar"><i style="width:${(alive / ids.length) * 100}%"></i></div>
+      <div class="st">${esc(STATE_LABEL[state] || state || '')}${d ? ` — ${esc(d.ref)}` : ''}</div></div>`;
+  };
+  const ai = st.ai || [];
+  $('squad').innerHTML = force(false, c.mode === 'watch' ? c.blueForce : null, ai[0]) + force(true, c.difficulty, ai[1]);
+  $('loadout').style.display = 'none';
+  $('vignette').style.boxShadow = 'none';
+  $('flash').style.opacity = 0;
+  $('channel').style.display = 'none';
+  $('prompt').textContent = '';
+  $('spectate').textContent = info.following ? `FOLLOWING ${info.following}` : '';
+  $('hint').innerHTML = '<kbd>WASD</kbd> pan <kbd>Wheel</kbd> zoom <kbd>Tab</kbd> follow next soldier <kbd>V</kbd> view all / blue / red' + (info.canSpeed ? ' <kbd>1–4</kbd> speed 1×/2×/4×/8×' : '');
+  const feed = info.messages.slice(-4).map((m) => `<div class="msg ${m.kind || ''}">${esc(m.text)}</div>`).join('');
+  if (feed !== lastFeed) { $('feed').innerHTML = feed; lastFeed = feed; }
+}
+
 export function renderResults(r, canReplay) {
   const t = $('resTitle');
-  t.textContent = r.win ? 'MISSION SUCCESS' : 'MISSION FAILED';
-  t.className = r.win ? 'win' : 'loss';
+  t.textContent = r.matchup ? (r.win ? 'BLUE WINS' : 'RED WINS') : r.win ? 'MISSION SUCCESS' : 'MISSION FAILED';
+  t.className = r.matchup ? '' : r.win ? 'win' : 'loss';
+  t.style.color = r.matchup ? (r.win ? 'var(--blue)' : 'var(--red)') : '';
   $('resReason').textContent = r.reason;
   const cells = [
-    ['Map', r.map], ['Mission', r.mission === 'breach' ? 'Breach' : 'Defend'], ['Enemy', PROFILES[r.difficulty].label],
-    ['Time', fmt(r.time)], ['Enemy down', `${r.redLost}/${r.redTotal}`], ['Your side lost', `${r.blueLost}/${r.blueTotal}`],
+    ['Map', r.map], ['Mission', (r.matchup ? 'Blue ' : '') + (r.mission === 'breach' ? (r.matchup ? 'attacks' : 'Breach') : (r.matchup ? 'defends' : 'Defend'))],
+    r.matchup ? ['Forces', `${PROFILES[r.blueForce].label} vs ${PROFILES[r.difficulty].label}`] : ['Enemy', PROFILES[r.difficulty].label],
+    ['Time', fmt(r.time)], [r.matchup ? 'Red lost' : 'Enemy down', `${r.redLost}/${r.redTotal}`], [r.matchup ? 'Blue lost' : 'Your side lost', `${r.blueLost}/${r.blueTotal}`],
   ];
   $('resStats').innerHTML = cells.map(([k, v]) => `<div>${k}<b>${esc(v)}</b></div>`).join('');
   $('btnAgain').disabled = !canReplay;

@@ -31,7 +31,7 @@ const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerH
 window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight, false); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); });
 
 // ───────────────────────── state ─────────────────────────
-const cfg = { mapId: 0, mission: 'breach', difficulty: 'REGULAR', aiMates: 0, name: 'Operator' };
+const cfg = { mode: 'play', mapId: 0, mission: 'breach', difficulty: 'REGULAR', blueForce: 'MARINES', aiMates: 0, name: 'Operator' };
 try { Object.assign(cfg, JSON.parse(localStorage.getItem('killhouse.cfg') || '{}')); } catch (e) { /* storage unavailable */ }
 if (!MAPS[cfg.mapId]) cfg.mapId = 0;
 const saveCfg = () => { try { localStorage.setItem('killhouse.cfg', JSON.stringify(cfg)); } catch (e) { /* */ } };
@@ -40,6 +40,7 @@ const app = {
   screen: 'loading', mode: null, sim: null, view: null, roster: null, myId: null, gcfg: null,
   net: null, room: null, code: null, gid: null, snaps: [], messages: [], pending: [], snapT: 0, tilesT: 0,
   camTarget: new THREE.Vector3(), camDist: 32, paused: false, result: null, pred: null, hudT: 0, unsub: [],
+  speed: 1, vision: 'all', follow: null,
 };
 window.__app = app;
 
@@ -53,12 +54,23 @@ function setScreen(name) {
 
 // ───────────────────────── menu ─────────────────────────
 function renderMenu() {
+  const watch = cfg.mode === 'watch';
   UI.renderMapGrid(cfg.mapId, (id) => { cfg.mapId = id; saveCfg(); renderMenu(); });
   UI.renderDiffs(cfg.difficulty, (k) => { cfg.difficulty = k; saveCfg(); renderMenu(); });
+  UI.renderDiffs(cfg.blueForce, (k) => { cfg.blueForce = k; saveCfg(); renderMenu(); }, 'diffsBlue');
+  for (const b of $('segMode').children) b.classList.toggle('on', b.dataset.v === cfg.mode);
+  UI.show('blueBlock', watch);
+  UI.show('matesBlock', !watch);
+  $('redHead').textContent = watch ? 'Red force' : 'Enemy force';
+  $('mBreach').textContent = watch ? 'Blue assaults the building, red defends it.' : 'You assault the building. The AI defends it.';
+  $('mDefend').textContent = watch ? 'Blue holds the building, red attacks it.' : 'You hold the building. The AI attacks it.';
+  $('btnSolo').textContent = watch ? 'Watch' : 'Play solo';
+  $('btnHost').textContent = watch ? 'Host online (others watch)' : 'Host online game';
   for (const b of $('segMission').children) b.classList.toggle('on', b.dataset.v === cfg.mission);
   for (const b of $('segMates').children) b.classList.toggle('on', +b.dataset.v === cfg.aiMates);
   $('optName').value = cfg.name;
 }
+$('segMode').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { cfg.mode = b.dataset.v; saveCfg(); renderMenu(); } });
 $('segMission').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { cfg.mission = b.dataset.v; saveCfg(); renderMenu(); } });
 $('segMates').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { cfg.aiMates = +b.dataset.v; saveCfg(); renderMenu(); } });
 $('optName').addEventListener('change', (e) => { cfg.name = e.target.value.trim().slice(0, 14) || 'Operator'; saveCfg(); });
@@ -79,28 +91,35 @@ function endGame() {
 function startView(roster, myId, gcfg) {
   if (app.view) app.view.dispose();
   app.roster = roster; app.myId = myId; app.gcfg = gcfg;
-  app.view = new View(scene, gcfg.mapId, roster, 'blue', myId);
+  app.watch = gcfg.mode === 'watch';
+  app.vision = app.watch ? 'all' : 'blue';
+  app.follow = null; app.speed = 1;
+  app.view = new View(scene, gcfg.mapId, roster, app.vision, myId);
   const m = app.view.map;
   const R = Math.max(m.w, m.h) * 0.75 + 6;
   sun.position.set(m.w / 2 - 18, 40, m.h / 2 + 24);
   sun.target.position.set(m.w / 2, 0, m.h / 2);
   Object.assign(sun.shadow.camera, { left: -R, right: R, top: R, bottom: -R, near: 1, far: 140 });
   sun.shadow.camera.updateProjectionMatrix();
-  app.camTarget.set(m.spawn.x, 0, m.spawn.z);
+  const c0 = app.watch ? m.objective : m.spawn;
+  app.camTarget.set(c0.x, 0, c0.z + (app.watch ? 6 : 0));
+  if (app.watch) app.camDist = Math.max(40, Math.min(56, Math.max(m.w, m.h) * 0.7));
   app.messages = [];
   app.result = null;
   setScreen('playing');
 }
 
 function newSim(humans) {
-  return new Sim({ mapId: cfg.mapId, mission: cfg.mission, difficulty: cfg.difficulty, aiMates: cfg.aiMates, humans, seed: (Math.random() * 1e9) | 0 });
+  const watch = cfg.mode === 'watch';
+  return new Sim({ mapId: cfg.mapId, mission: cfg.mission, difficulty: cfg.difficulty, aiMates: cfg.aiMates, blueForce: watch ? cfg.blueForce : null, humans: watch ? [] : humans, seed: (Math.random() * 1e9) | 0 });
 }
 
 function startSolo() {
   endGame();
   app.mode = 'solo';
   app.sim = newSim([{ peer: 'local', name: cfg.name }]);
-  startView(app.sim.roster(), app.sim.humanUnit('local').id, { ...cfg });
+  const me = app.sim.humanUnit('local');
+  startView(app.sim.roster(), me ? me.id : null, { ...cfg });
 }
 
 // ───────────────────────── multiplayer ─────────────────────────
@@ -149,7 +168,9 @@ function renderLobby() {
   const host = isHost ? { presence: { cfg, name: cfg.name } } : hostPeer();
   $('lobbyCode').textContent = app.code.toUpperCase();
   const c = host && host.presence.cfg;
-  $('lobbyCfg').textContent = c ? `${MAPS[c.mapId].name} · ${c.mission === 'breach' ? 'Breach (you attack)' : 'Defend (you hold)'} · vs ${c.difficulty} · ${c.aiMates} AI teammates` : 'Waiting for the host…';
+  $('lobbyCfg').textContent = !c ? 'Waiting for the host…' : c.mode === 'watch'
+    ? `AI vs AI on ${MAPS[c.mapId].name}: ${c.blueForce} (blue, ${c.mission === 'breach' ? 'attacking' : 'defending'}) vs ${c.difficulty} (red). Everyone watches.`
+    : `${MAPS[c.mapId].name} · ${c.mission === 'breach' ? 'Breach (you attack)' : 'Defend (you hold)'} · vs ${c.difficulty} · ${c.aiMates} AI teammates`;
   const peers = app.room.peers().filter((p) => p.presence && (p.presence.kh === 'host' || p.presence.kh === 'client'));
   $('lobbyPlayers').innerHTML = peers.map((p) => `<div>${UI.esc(p.presence.name || 'Player')}${p.presence.kh === 'host' ? ' · host' : ''}${p.isMe ? ' (you)' : ''}</div>`).join('');
   $('lobbyNote').textContent = isHost ? 'Share the room code. Players who join see these settings. Change them from the main menu before hosting.' : 'The host starts the mission.';
@@ -165,7 +186,8 @@ function hostStart() {
   app.gid = randomCode();
   const roster = app.sim.roster();
   app.room.presence({ kh: 'host', name: cfg.name, cfg: { ...cfg }, st: 'play', gid: app.gid, roster });
-  startView(roster, app.sim.humanUnit(app.room.me).id, { ...cfg });
+  const me = app.sim.humanUnit(app.room.me);
+  startView(roster, me ? me.id : null, { ...cfg });
 }
 
 function onPeersClient() {
@@ -231,6 +253,17 @@ window.addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) e.preventDefault();
   input.keys[e.code] = true;
   if (e.repeat) return;
+  if (app.watch || !app.myId) {
+    if (e.code === 'Tab') cycleFollow();
+    if (e.code === 'KeyV' && app.view) {
+      const order = app.watch ? ['all', 'blue', 'red'] : ['blue', 'all'];
+      app.vision = order[(order.indexOf(app.vision) + 1) % order.length];
+      app.view.localTeam = app.vision;
+    }
+    if (app.sim && /^Digit[1-4]$/.test(e.code)) app.speed = [1, 2, 4, 8][+e.code.slice(5) - 1];
+    if (/^Key[WASD]$/.test(e.code)) app.follow = null;
+    return;
+  }
   const s = input.seq;
   switch (e.code) {
     case 'KeyR': s.rs++; break;
@@ -245,6 +278,15 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => { input.keys[e.code] = false; });
 window.addEventListener('blur', () => { input.keys = {}; });
+
+function cycleFollow() {
+  const st = app.lastState;
+  if (!st) return;
+  const alive = app.roster.filter((r) => st.units.get(r[0])?.alive);
+  if (!alive.length) return;
+  const i = alive.findIndex((r) => r[0] === app.follow);
+  app.follow = alive[(i + 1) % alive.length][0];
+}
 
 function mouseWorld(h) {
   ndc.set((mouseX / innerWidth) * 2 - 1, -(mouseY / innerHeight) * 2 + 1);
@@ -330,6 +372,28 @@ function contextPrompt(st, me) {
 }
 
 function updateCamera(st, dt) {
+  if (app.watch || !app.myId) {
+    let tx = app.camTarget.x, tz = app.camTarget.z;
+    const f = app.follow && st.units.get(app.follow);
+    if (f && f.alive) { tx = f.x; tz = f.z; }
+    else {
+      const k = input.keys, sp = app.camDist * 0.9 * dt;
+      if (k.KeyW || k.ArrowUp) tz -= sp;
+      if (k.KeyS || k.ArrowDown) tz += sp;
+      if (k.KeyA || k.ArrowLeft) tx -= sp;
+      if (k.KeyD || k.ArrowRight) tx += sp;
+    }
+    const m = app.view.map;
+    tx = Math.max(-10, Math.min(m.w + 10, tx)); tz = Math.max(-10, Math.min(m.h + 10, tz));
+    const kk = f ? 1 - Math.pow(0.002, dt) : 1;
+    app.camTarget.x += (tx - app.camTarget.x) * kk;
+    app.camTarget.z += (tz - app.camTarget.z) * kk;
+    const d = app.camDist;
+    camera.position.set(app.camTarget.x, d * 0.95, app.camTarget.z + d * 0.55);
+    camera.lookAt(app.camTarget.x, 0, app.camTarget.z);
+    app.view.setListener(app.camTarget.x, app.camTarget.z);
+    return f ? app.roster.find((r) => r[0] === app.follow)?.[3] : null;
+  }
   let focus = st.units.get(app.myId);
   let spect = null;
   if (!focus || !focus.alive) {
@@ -379,8 +443,9 @@ function frame() {
       if ((app.dropT = (app.dropT || 0) - dt) <= 0) { app.dropT = 2; hostDropLeavers(); }
     }
     if (!app.paused) {
-      const steps = dt > 0.034 ? 2 : 1;
-      for (let i = 0; i < steps; i++) app.sim.step(dt / steps);
+      const total = dt * (app.mode === 'solo' ? app.speed : 1);
+      const steps = Math.max(1, Math.ceil(total / 0.034));
+      for (let i = 0; i < steps; i++) app.sim.step(total / steps);
     }
     const evs = app.sim.events.splice(0);
     app.view.events(evs);
@@ -399,11 +464,12 @@ function frame() {
     st = decodeSnap(app.sim.snapshot(false));
     if (app.sim.phase === 'over' && !app.result) { app.result = app.sim.result; setTimeout(showResults, 1200); }
   } else if (app.mode === 'client') {
-    if (app.room && app.screen === 'playing') app.room.presence({ gid: app.gid, in: inp });
+    if (app.room && app.screen === 'playing' && app.myId) app.room.presence({ gid: app.gid, in: inp });
     st = interpState();
     if (st && app.myId) predict(st, inp, dt);
   }
   if (!st) { renderer.render(scene, camera); return; }
+  app.lastState = st;
   const spect = updateCamera(st, dt);
   if (app.sim) {
     // local aim shows immediately
@@ -416,7 +482,7 @@ function frame() {
     app.hudT = 1 / 15;
     app.messages = app.messages.filter((m) => m.until > now);
     const me = st.units.get(app.myId);
-    UI.updateHUD(st, { mission: app.gcfg.mission, mapName: MAPS[app.gcfg.mapId].name, diff: app.gcfg.difficulty, roster: app.roster, myId: app.myId, messages: app.messages, prompt: contextPrompt(st, me), spectating: spect });
+    UI.updateHUD(st, { watch: app.watch || !app.myId, cfg: app.gcfg, vision: app.vision, speed: app.mode === 'solo' ? app.speed : 1, canSpeed: app.mode === 'solo', following: spect, mission: app.gcfg.mission, mapName: MAPS[app.gcfg.mapId].name, diff: app.gcfg.difficulty, roster: app.roster, myId: app.myId, messages: app.messages, prompt: contextPrompt(st, me), spectating: spect });
   }
   renderer.render(scene, camera);
 }
@@ -443,6 +509,7 @@ loadAssets((p) => {
   $('loadText').textContent = `Loading assets… ${Math.round(p * 100)}%`;
 }).then(async () => {
   renderMenu();
+  UI.renderTraining();
   setScreen('menu');
   frame();
   app.net = await detectNet();

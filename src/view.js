@@ -26,11 +26,8 @@ export class View {
       const vis = makeSoldier(team);
       const ring = makeRing(team);
       vis.root.add(ring);
-      let tag = null;
-      if (team === localTeam) {
-        tag = textSprite(human ? name : role, team === 'blue' ? '#1f6fff' : '#ff2d2d', 0, 2.35, 0, 0.55);
-        vis.root.add(tag);
-      }
+      const tag = textSprite(human ? name : role, team === 'blue' ? '#1f6fff' : '#ff2d2d', 0, 2.35, 0, 0.55);
+      vis.root.add(tag);
       scene.add(vis.root);
       this.units.set(id, { id, team, role, name, human, vis, ring, tag, s: null, phase: Math.random() * 6, deadT: 0, seenUntil: -1, ghost: null });
     }
@@ -104,13 +101,15 @@ export class View {
       v.root.position.set(s.x, s.h, s.z);
       v.root.rotation.y = s.yaw;
       let visible = true;
-      if (u.team !== this.localTeam && s.alive) {
+      if (u.tag) u.tag.visible = this.localTeam === 'all' || u.team === this.localTeam;
+      if (this.localTeam !== 'all' && u.team !== this.localTeam && s.alive) {
         visible = this.seen(s.x, s.z, list);
         if (visible) u.seenUntil = this.t + RED_SEEN_FADE;
       }
       v.root.visible = visible;
       // last-known marker for enemies that dropped out of sight
-      if (u.team !== this.localTeam) {
+      if (u.ghost && (this.localTeam === 'all' || u.team === this.localTeam)) u.ghost.visible = false;
+      if (u.team !== this.localTeam && this.localTeam !== 'all') {
         const showGhost = !visible && s.alive && this.t < u.seenUntil;
         if (showGhost && !u.ghost) {
           u.ghost = new THREE.Mesh(new THREE.RingGeometry(0.35, 0.5, 24), new THREE.MeshBasicMaterial({ color: 0xff2d2d, transparent: true, depthWrite: false }));
@@ -150,7 +149,7 @@ export class View {
       liveC.add(id);
       let m = this.claymores.get(id);
       if (!m) { m = claymoreMesh(isRed ? 'red' : 'blue'); m.position.set(x, 0, z); m.rotation.y = yaw; this.scene.add(m); this.claymores.set(id, m); }
-      const mine = (isRed ? 'red' : 'blue') === this.localTeam;
+      const mine = this.localTeam === 'all' || (isRed ? 'red' : 'blue') === this.localTeam;
       m.visible = mine || this.seenClose(x, z, list);
     }
     for (const [id, m] of this.claymores) if (!liveC.has(id)) { this.scene.remove(m); this.claymores.delete(id); }
@@ -211,5 +210,5 @@ export function decodeSnap(s) {
       charges: a[11], clay: a[12], supp: a[13], chanP: a[14], h: 0,
     });
   }
-  return { t: s.t, phase: s.ph, prepLeft: s.pl, timeLeft: s.tl, units, smokes: s.s.map((k) => ({ id: k[0], x: k[1], z: k[2], r: k[3], alpha: k[4] })), claymores: s.c, projs: s.p, charges: s.b };
+  return { ai: s.ai, t: s.t, phase: s.ph, prepLeft: s.pl, timeLeft: s.tl, units, smokes: s.s.map((k) => ({ id: k[0], x: k[1], z: k[2], r: k[3], alpha: k[4] })), claymores: s.c, projs: s.p, charges: s.b };
 }

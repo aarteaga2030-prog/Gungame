@@ -31,6 +31,9 @@ export class Sim {
     this.map = new GameMap(this.def);
     this.mission = opts.mission;
     this.profile = PROFILES[opts.difficulty];
+    // AI vs AI: blue is a full AI force too (no players)
+    this.matchup = !!opts.blueForce;
+    this.blueProfile = this.matchup ? PROFILES[opts.blueForce] : PROFILES.VETERAN;
     this.rand = rng(opts.seed || 1);
     this.t = 0;
     this.phase = 'prep';
@@ -50,7 +53,7 @@ export class Sim {
     this.spawnForces();
     this.ai = {
       red: new TeamAI(this, 'red', this.profile, this.blueAttacks ? 'defend' : 'attack'),
-      blue: new TeamAI(this, 'blue', PROFILES.VETERAN, 'escort'),
+      blue: new TeamAI(this, 'blue', this.blueProfile, this.matchup ? (this.blueAttacks ? 'attack' : 'defend') : 'escort'),
     };
   }
 
@@ -66,9 +69,17 @@ export class Sim {
       const p = blueSpots[bi++ % blueSpots.length];
       this.addUnit({ team: 'blue', role: 'OP', human: h.peer, name: h.name, ...p });
     }
-    for (let i = 0; i < (this.opts.aiMates || 0); i++) {
-      const p = blueSpots[bi++ % blueSpots.length];
-      this.addUnit({ team: 'blue', role: 'RF', name: `AI ${i + 1}`, ...p });
+    if (this.matchup) {
+      const blueSpread = this.blueAttacks ? blueSpots : this.insideSpots(inside, false);
+      rolesFor(this.blueProfile.size).forEach((r, i) => {
+        const p = blueSpread[(i * 3) % blueSpread.length];
+        this.addUnit({ team: 'blue', role: r.role, fireTeam: r.team, name: `${r.role}${r.team >= 0 ? r.team + 1 : ''}`, ...p });
+      });
+    } else {
+      for (let i = 0; i < (this.opts.aiMates || 0); i++) {
+        const p = blueSpots[bi++ % blueSpots.length];
+        this.addUnit({ team: 'blue', role: 'RF', name: `AI ${i + 1}`, ...p });
+      }
     }
     const roles = rolesFor(this.profile.size);
     roles.forEach((r, i) => {
@@ -89,7 +100,7 @@ export class Sim {
   addUnit(o) {
     const p = this.free(o.x, o.z);
     const ar = o.role === 'AR';
-    const prof = o.team === 'red' ? this.profile : PROFILES.VETERAN;
+    const prof = o.team === 'red' ? this.profile : this.blueProfile;
     const isHuman = !!o.human;
     const defending = (o.team === 'blue') !== this.blueAttacks;
     const u = {
@@ -496,20 +507,23 @@ export class Sim {
       this.phase = 'over';
       this.result = { win, reason, time: this.t, stats: { ...this.stats }, mission: this.mission, map: this.def.name, difficulty: this.opts.difficulty,
         blueLost: this.units.filter((u) => u.team === 'blue' && !u.alive).length, blueTotal: this.units.filter((u) => u.team === 'blue').length,
-        redLost: this.units.filter((u) => u.team === 'red' && !u.alive).length, redTotal: this.units.filter((u) => u.team === 'red').length };
+        redLost: this.units.filter((u) => u.team === 'red' && !u.alive).length, redTotal: this.units.filter((u) => u.team === 'red').length,
+        matchup: this.matchup, blueForce: this.opts.blueForce || null };
       this.events.push({ k: 'end', result: this.result });
     };
-    if (!blue.length) return end(false, 'Your side was wiped out.');
-    if (!red.length) return end(true, this.blueAttacks ? 'Building cleared — every defender is down.' : 'The assault is broken — every attacker is down.');
+    const side = (b) => (this.matchup ? (b ? 'Blue' : 'Red') : (b ? 'Your side' : 'The enemy'));
+    if (!blue.length) return end(false, this.matchup ? 'Red wins — the blue force was wiped out.' : 'Your side was wiped out.');
+    if (!red.length) return end(true, (this.matchup ? 'Blue wins — ' : '') + (this.blueAttacks ? 'building cleared, every defender is down.' : 'the assault is broken, every attacker is down.'));
     const obj = this.map.objective;
     if (this.blueAttacks) {
-      if (this.timeLeft <= 0) return end(false, 'Out of time — the building was not cleared.');
+      if (this.timeLeft <= 0) return end(false, (this.matchup ? 'Red wins — ' : '') + 'out of time, the building was not cleared.');
     } else {
       const redOn = red.some((u) => dist(u, obj) < 4);
       const blueNear = blue.some((u) => dist(u, obj) < 10);
       this.seizeT = redOn && !blueNear ? this.seizeT + dt : 0;
-      if (this.seizeT >= CFG.seizeTime) return end(false, 'The enemy seized the objective.');
-      if (this.timeLeft <= 0) return end(true, 'Held until the clock ran out.');
+      if (this.seizeT >= CFG.seizeTime) return end(false, this.matchup ? 'Red wins — the objective was seized.' : 'The enemy seized the objective.');
+      if (this.timeLeft <= 0) return end(true, (this.matchup ? 'Blue wins — ' : '') + 'held until the clock ran out.');
+      void side;
     }
   }
 
@@ -522,6 +536,7 @@ export class Sim {
       c: this.claymores.filter((k) => k.alive).map((k) => [k.id, r1(k.x), r1(k.z), r2(k.yaw), k.team === 'red' ? 1 : 0]),
       p: this.projectiles.map((p) => [p.id, r1(p.x), r1(p.y), r1(p.z), p.kind[0]]),
       b: this.charges.map((c) => [c.id, c.x, c.z]),
+      ai: [this.ai.blue.state, this.ai.red.state],
     };
     if (fullTiles) s.tiles = [...this.map.changes].flat();
     return s;

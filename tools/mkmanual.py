@@ -1,0 +1,87 @@
+import re, json, sys
+MANUALS = [
+  ('fm334',  'FM 3-34.2', 'Combined-Arms Breaching Operations'),
+  ('atp',    'ATP 3-21.8', 'Infantry Rifle Platoon and Squad'),
+  ('fm5102', 'FM 5-102', 'Countermobility'),
+  ('attp',   'ATTP 3-06.11', 'Combined Arms Operations in Urban Terrain'),
+]
+# topic tags → regexes (case-insensitive); order = bit index
+TAGS = [
+  ('org', r'fire team|squad leader|team leader|automatic rifleman|grenadier|task organiz'),
+  ('movement', r'formation|wedge|traveling overwatch|bounding overwatch|movement technique|\bbound(s|ing)?\b'),
+  ('contact', r'react to contact|in contact|return fire|contact with the enemy|enemy contact'),
+  ('firemove', r'fire and movement|flank|maneuver|base of fire|support[- ]by[- ]fire|assault element|support element'),
+  ('suppress', r'suppress'),
+  ('obscure', r'smoke|obscur'),
+  ('breach', r'breach|reduction|reduce the obstacle|SOSRA|demolition|explosive'),
+  ('cqb', r'clear(ing)? (a |the )?room|room clearing|point of domination|stack|doorway|fatal funnel|entry point|entering'),
+  ('stairs', r'stair|upper floor|top floor|lower floor|basement'),
+  ('windows', r'window|loophole|firing port|aperture'),
+  ('defense', r'defen[cs]|fighting position|sectors? of fire|priorit(y|ies) of work|range card|battle position'),
+  ('interlock', r'interlock|overlapping|final protective|principal direction of fire|mutually supporting|crossfire'),
+  ('obstacles', r'obstacle|wire|minefield|\bmines?\b|claymore|concertina|abatis|tanglefoot'),
+  ('cover', r'cover and concealment|\bcover\b|concealment|dead space'),
+  ('grenades', r'grenade|M203|M320|grenade launcher'),
+  ('alternate', r'alternate position|supplementary position|displace|reposition'),
+  ('counterattack', r'counterattack'),
+  ('ambush', r'ambush|kill(ing)? zone|engagement area'),
+  ('search', r'search|reconnaissance|recon\b|patrol|lost contact'),
+  ('break', r'break contact|withdraw|retrograde|delay'),
+  ('casualty', r'casualt|evacuat|first aid|wounded|treat'),
+  ('firecontrol', r'fire control|fire distribution|target priorit|rates? of fire|engagement criteria|fire command|trigger'),
+  ('urban', r'urban|building|street|alley|rooftop|structure'),
+  ('comms', r'report|radio|communicat|signal|hand-and-arm'),
+  ('security', r'security|observation post|listening post|\bOPs?\b|early warning|sentr'),
+  ('planning', r'troop leading|METT|operation order|\bplan(s|ning)?\b|commander.s intent'),
+]
+TAG_RE = [(n, re.compile(rx, re.I)) for n, rx in TAGS]
+SKIP = re.compile(r'^(contents|index|glossary|references|preface|introduction to this publication|distribution restriction|summary of changes|source notes)\b', re.I | re.M)
+out = []
+summary = []
+for mi, (fid, short, title) in enumerate(MANUALS):
+    pages = open(fid + '.txt', errors='ignore').read().split('\f')
+    if pages and not pages[-1].strip(): pages = pages[:-1]
+    trained = 0
+    for pi, raw in enumerate(pages):
+        txt = ' '.join(raw.split())
+        words = len(txt.split())
+        dots = raw.count('.....')
+        head = raw.strip()[:400]
+        kind = 'text'
+        if words < 25: kind = 'figure'                         # figure / scanned / blank page
+        if dots > 4 or SKIP.search(head) or re.search(r'\bIndex-\d|Glossary-\d|References-\d', raw): kind = 'front/back matter'
+        if pi < 3 and words < 200: kind = 'front/back matter'
+        if words < 5 or re.search(r'intentionally left blank', txt, re.I) and words < 30: kind = 'blank'
+        # printed page label + paragraph numbers on the page
+        lab = re.findall(r'^\s*((?:\d{1,2}|[A-H])-\d{1,3})\s*$', raw, re.M)
+        paras = re.findall(r'^\s*(\d{1,2}-\d{1,3})\.\s', raw, re.M)
+        ref = ''
+        if paras: ref = '¶' + paras[0] + ('–' + paras[-1] if len(paras) > 1 else '')
+        elif lab: ref = 'p. ' + lab[-1]
+        # heading: first ALL-CAPS line or "Section"/"Chapter" line, else first words
+        heading = ''
+        for line in raw.split('\n'):
+            l = line.strip()
+            if 6 <= len(l) <= 60 and l.isupper() and len(l.split()) >= 2 and not re.match(r'^(DISTRIBUTION|FM|ATP|ATTP)\b', l):
+                heading = l.title(); break
+            if re.match(r'^Section [IVX]+', l): heading = l; break
+        if not heading:
+            m = re.search(r'(?:^|\s)\d{1,2}-\d{1,3}\.\s+(.{10,80}?)(?:[.:;]|$)', txt)
+            heading = m.group(1) if m else ' '.join(w for w in txt.split()[:9] if not re.match(r'^(Chapter|\d+)$', w))
+        heading = heading[:56]
+        mask = 0
+        for bi, (n, rx) in enumerate(TAG_RE):
+            hits = len(rx.findall(txt))
+            if hits >= (1 if n in ('counterattack', 'ambush', 'stairs', 'interlock', 'grenades', 'obscure', 'suppress') else 2): mask |= 1 << bi
+        train = kind in ('text', 'figure')
+        if train: trained += 1
+        out.append([mi, pi + 1, ref, heading, mask, 1 if train else 0, kind[0]])
+    summary.append((short, len(pages), trained))
+js = '// GENERATED by tools/mkmanual.py from the four field manuals (pdftotext).\n'
+js += '// One entry per PDF page: [manual, pdfPage, ref, heading, topicBitmask, trained(1/0), kind(t=text f=figure b=blank/front)].\n'
+js += 'export const MANUALS = ' + json.dumps([{'id': m[0], 'short': m[1], 'title': m[2]} for m in MANUALS]) + ';\n'
+js += 'export const TOPICS = ' + json.dumps([t[0] for t in TAGS]) + ';\n'
+js += 'export const PAGE_INDEX = ' + json.dumps(out, ensure_ascii=False, separators=(',', ':')) + ';\n'
+open(sys.argv[1], 'w').write(js)
+for s in summary: print(s)
+print('total', sum(s[1] for s in summary), 'trained', sum(s[2] for s in summary), 'bytes', len(js))
